@@ -48,7 +48,8 @@ services:
     plan: starter              # NOT `free`: free instances sleep after 15 min and
                                # would kill the metrics hub + n8n polling loop.
     dockerfilePath: ./backend/Dockerfile
-    dockerContext: ./backend
+    dockerContext: .           # repo root: the image's test stage checks the
+                               # workflow JSONs, which live outside ./backend
     healthCheckPath: /api/health
     autoDeployTrigger: commit
     envVars:

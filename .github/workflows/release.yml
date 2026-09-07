@@ -74,7 +74,7 @@ jobs:
         run: pip check
 
       - name: Backend · docker build --target test
-        run: docker build --target test backend
+        run: docker build --target test -f backend/Dockerfile .
 
       # ---- Frontend ---------------------------------------------------
       - uses: actions/setup-node@v4

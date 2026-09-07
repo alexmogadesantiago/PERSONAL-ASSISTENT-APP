@@ -147,7 +147,9 @@ services:
   # --- Automation Center control plane (FastAPI) ---
   backend:
     build:
-      context: ./backend
+      # Repo root, so the image's test stage can reach ./workflows.
+      context: .
+      dockerfile: backend/Dockerfile
     image: pa-automation-center-backend:local
     container_name: pa-backend
     restart: unless-stopped

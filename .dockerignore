@@ -1,0 +1,50 @@
+# Build context for `backend/Dockerfile`, which is now the repository root so
+# the test stage can reach the committed n8n workflow JSONs (see the note at
+# the top of that file). Docker reads the .dockerignore of the CONTEXT root, so
+# `backend/.dockerignore` no longer applies to that build and its rules live
+# here.
+#
+# The backend image needs `backend/` and `workflows/`. Nothing else should even
+# reach the daemon - least of all a secret.
+
+# --- secrets and local configuration (never in a build context) ---
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+config/user_profile.json
+
+# --- version control, CI and agent scratch ---
+.git
+.github
+.claude
+
+# --- the frontend: built on Vercel, never part of the backend image ---
+frontend
+
+# --- python caches (carried over from backend/.dockerignore) ---
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+htmlcov/
+.coverage
+*.egg-info/
+
+# --- other services' build contexts and generated artefacts ---
+installer
+playwright
+build
+dist
+pkgroot
+output
+docs
+reference
+profile
+n8n_data/
+postgres_data/
+*.log
