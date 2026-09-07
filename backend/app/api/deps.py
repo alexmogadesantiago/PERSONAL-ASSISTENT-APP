@@ -37,10 +37,17 @@ def get_current_user(
 
 
 def require_admin(user: User = Depends(get_current_user)) -> User:
-    """Admin-only guard. Kept (v0.4.0) for the admin API arriving in a later
-    phase; there are currently no routes that depend on it, so it grants no
-    protection today — it is a ready primitive, not an active control. The
-    role model it enforces (first registered user = admin) is already live.
+    """Admin-only guard, and an active control.
+
+    It gates every write that changes what the backend connects to: the AI
+    provider selection and its credentials, the automation service token, and
+    the n8n / Playwright endpoints and keys. Reads stay open to any signed-in
+    user, so the Settings page renders for everyone and only saving is refused.
+
+    The role is read from the database on every request (`get_current_user`),
+    not from the JWT's `role` claim, so promoting or demoting an account takes
+    effect on the token that account already holds. Roles are changed with
+    `python -m app.manage promote-admin <user>`; no endpoint writes one.
     """
     if user.role != UserRole.admin:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="admin only")
