@@ -54,7 +54,16 @@ const MIXED = [
   service({ name: "n8n", status: "degraded", online: null, configured: true, detail: "reachable but the API key was rejected (HTTP 401)", latency_ms: 12 }),
   service({ name: "playwright", status: "not_configured", detail: "not configured: AC_PLAYWRIGHT_BASE_URL" }),
   service({ name: "profile", kind: "data", status: "configured", online: true, configured: true, detail: "1 complete profile(s)", latency_ms: 2 }),
-  service({ name: "gemini", kind: "provider", status: "invalid", online: false, configured: true, detail: "the API key was rejected (HTTP 403)", latency_ms: 30 }),
+  service({
+    name: "ai",
+    kind: "provider",
+    status: "invalid",
+    online: false,
+    configured: true,
+    detail: "the API key was rejected (HTTP 403)",
+    latency_ms: 30,
+    meta: { provider: "nvidia_nim", provider_label: "NVIDIA NIM", model: "meta/llama-3.3-70b-instruct" },
+  }),
 ];
 
 beforeEach(() => {
@@ -87,7 +96,9 @@ describe("MonitoringPage", () => {
     expect(await screen.findByText("PostgreSQL")).toBeInTheDocument();
     // scope to the table: the page also carries a legend explaining the states
     const table = within(screen.getByRole("table"));
-    expect(table.getByText("Gemini")).toBeInTheDocument();
+    expect(table.getByText("AI")).toBeInTheDocument();
+    // the AI row names the provider and model actually in use
+    expect(table.getByText(/NVIDIA NIM · meta\/llama-3.3-70b-instruct/)).toBeInTheDocument();
 
     // a service nobody configured is grey "not configured", never "offline"
     expect(table.getByText("not configured")).toBeInTheDocument();
@@ -148,6 +159,45 @@ describe("MonitoringPage", () => {
 });
 
 describe("SettingsPage service configuration", () => {
+  // The AI panel shares the page; stub it so the test exercises the real
+  // layout rather than an error state that happens to hide the AI fields.
+  const aiConfig = () => ({
+    provider: "",
+    model: "",
+    fallback_enabled: true,
+    fallback_provider: "",
+    fallback_model: "",
+    effective_fallback_provider: "",
+    temperature: 0.2,
+    max_tokens: 2048,
+    timeout_seconds: 60,
+    source: "default",
+    configured: false,
+    missing: ["an AI provider (none is configured)"],
+    providers: [],
+    service_token: { configured: false, source: "none", hint: "" },
+  });
+  const aiProviders = () => [
+    {
+      id: "nvidia_nim",
+      label: "NVIDIA NIM",
+      tagline: "Recommended.",
+      recommended: true,
+      api_style: "openai",
+      default_base_url: "https://integrate.api.nvidia.com/v1",
+      default_model: "meta/llama-3.3-70b-instruct",
+      key_help: "build.nvidia.com",
+      console_url: "https://build.nvidia.com/",
+      service_key: "nvidia_nim",
+      configured: false,
+      secret_configured: false,
+      secret_hint: "",
+      base_url: "https://integrate.api.nvidia.com/v1",
+      model: "meta/llama-3.3-70b-instruct",
+      source: "none",
+    },
+  ];
+
   const configs = {
     data: [
       {
@@ -185,6 +235,9 @@ describe("SettingsPage service configuration", () => {
       "GET /api/health": { body: { status: "ok", version: "0", environment: "testing", database: "ok", problems: [] } },
       "GET /api/system/status": { body: statusBody([]) },
       "GET /api/n8n/health": { body: { base_url: "", api_key_configured: false, status: "not_configured" } },
+      "GET /api/ai/config": { body: aiConfig() },
+      "GET /api/ai/providers": { body: { data: aiProviders() } },
+      "GET /api/ai/models": { body: { provider: "nvidia_nim", live: true, detail: "", data: [] } },
       "GET /api/auth/me": { body: sampleUser },
     });
     renderWithProviders(<SettingsPage />);
@@ -223,6 +276,9 @@ describe("SettingsPage service configuration", () => {
       "GET /api/health": { body: { status: "ok", version: "0", environment: "testing", database: "ok", problems: [] } },
       "GET /api/system/status": { body: statusBody([]) },
       "GET /api/n8n/health": { body: { base_url: "", api_key_configured: true, status: "online" } },
+      "GET /api/ai/config": { body: aiConfig() },
+      "GET /api/ai/providers": { body: { data: aiProviders() } },
+      "GET /api/ai/models": { body: { provider: "nvidia_nim", live: true, detail: "", data: [] } },
       "GET /api/auth/me": { body: sampleUser },
     });
     renderWithProviders(<SettingsPage />);

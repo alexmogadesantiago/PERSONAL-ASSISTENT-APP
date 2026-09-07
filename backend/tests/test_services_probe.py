@@ -9,8 +9,9 @@ The behaviours that matter:
   ``online``: the automations would fail, so a green light would be a lie;
 * the profile is judged by real rows carrying real values, never by a table
   existing;
-* Gemini is judged by the provider actually accepting the key, and the verdict
-  is cached so the 5-second monitor loop does not burn provider quota;
+* the AI tile is judged by the *configured* provider actually accepting the
+  key, the verdict is cached so the 5-second monitor loop does not burn provider
+  quota, and a dead primary with a live fallback is ``degraded``, not offline;
 * configuration written from the panel (database) beats the environment;
 * no probe output ever contains a secret.
 """
@@ -21,6 +22,7 @@ import pytest
 from app.models import Profile, User, UserRole, UserStatus
 from app.services import service_config
 from app.services import services_probe as sp
+from tests import ai_stubs
 
 pytestmark = pytest.mark.anyio
 
@@ -42,28 +44,15 @@ def _isolate(monkeypatch, session_factory):
     """Point the DB-backed probes at the test database and clear caches."""
     monkeypatch.setattr(sp, "_session_factory", lambda: session_factory)
     monkeypatch.setattr(sp, "_check_database_sync", lambda: (True, 1.0, "SELECT 1 ok"))
-    sp.reset_gemini_cache()
+    sp.reset_ai_cache()
     yield
-    sp.reset_gemini_cache()
+    sp.reset_ai_cache()
 
 
 @pytest.fixture
-def env_unset(monkeypatch):
+def env_unset(settings_factory):
     """No service configured through the environment."""
-    from types import SimpleNamespace
-
-    cfg = SimpleNamespace(
-        n8n_base_url="",
-        n8n_api_key="",
-        playwright_base_url="",
-        profile_base_url="",
-        gemini_api_key="",
-        gemini_model="gemini-2.5-flash",
-        gemini_verify_ttl_seconds=300.0,
-    )
-    monkeypatch.setattr(service_config, "get_settings", lambda: cfg)
-    monkeypatch.setattr(sp, "get_settings", lambda: cfg)
-    return cfg
+    return settings_factory()
 
 
 def stub_http(monkeypatch, routes: dict[str, tuple[int | None, float | None, str]]):
@@ -111,7 +100,7 @@ async def test_nothing_configured_is_not_configured_not_offline(env_unset):
     assert services["postgres"]["status"] == "online"
     assert services["n8n"]["status"] == "not_configured"
     assert services["playwright"]["status"] == "not_configured"
-    assert services["gemini"]["status"] == "not_configured"
+    assert services["ai"]["status"] == "not_configured"
     # no profile rows exist -> not configured, and that is not an error either
     assert services["profile"]["status"] == "not_configured"
 
@@ -120,7 +109,7 @@ async def test_nothing_configured_is_not_configured_not_offline(env_unset):
     assert status["state"] == "operational"
     assert status["degraded_services"] == []
     assert sorted(status["not_configured_services"]) == [
-        "gemini",
+        "ai",
         "n8n",
         "playwright",
         "profile",
@@ -201,56 +190,100 @@ async def test_playwright_online_and_offline(env_unset, monkeypatch):
     assert by_name(await sp.system_status())["playwright"]["status"] == "offline"
 
 
-# --------------------------------------------------------------- gemini ------
+# ------------------------------------------------------------------- ai ------
+#
+# The AI tile reports the *configured* provider, not "some provider has a key".
+# Everything below stubs the socket only, so the real request building, status
+# mapping and fallback policy are what is under test.
 
 
-async def test_gemini_key_accepted_is_configured(env_unset, monkeypatch):
-    env_unset.gemini_api_key = "AIza-test-key"
-    stub_http(monkeypatch, {"generativelanguage": (200, 30.0, "HTTP 200")})
+async def test_ai_provider_accepted_is_online(env_unset, monkeypatch):
+    env_unset.nvidia_nim_api_key = "nvapi-test-key"
+    ai_stubs.install(monkeypatch, ai_stubs.routes({ai_stubs.NIM: ai_stubs.openai_models("m")}))
 
-    service = by_name(await sp.system_status())["gemini"]
-    assert service["status"] == "configured"
+    service = by_name(await sp.system_status())["ai"]
+    assert service["status"] == "online"
     assert service["online"] is True
+    assert service["meta"]["provider"] == "nvidia_nim"
 
 
-async def test_gemini_key_rejected_is_invalid_not_offline(env_unset, monkeypatch):
-    env_unset.gemini_api_key = "bad-key"
-    stub_http(monkeypatch, {"generativelanguage": (403, 30.0, "HTTP 403")})
+async def test_ai_key_rejected_is_invalid_not_offline(env_unset, monkeypatch):
+    env_unset.nvidia_nim_api_key = "bad-key"
+    ai_stubs.install(monkeypatch, ai_stubs.routes({ai_stubs.NIM: ai_stubs.error(401)}))
 
     status = await sp.system_status()
-    service = by_name(status)["gemini"]
+    service = by_name(status)["ai"]
     assert service["status"] == "invalid"
-    assert "gemini" in status["degraded_services"]
+    assert "ai" in status["degraded_services"]
 
 
-async def test_gemini_provider_unreachable_is_offline(env_unset, monkeypatch):
-    env_unset.gemini_api_key = "AIza-test-key"
-    stub_http(monkeypatch, {})
-    assert by_name(await sp.system_status())["gemini"]["status"] == "offline"
+async def test_ai_provider_unreachable_is_offline(env_unset, monkeypatch):
+    env_unset.nvidia_nim_api_key = "nvapi-test-key"
+    ai_stubs.install(monkeypatch, ai_stubs.routes({ai_stubs.NIM: ai_stubs.connect_error}))
+    assert by_name(await sp.system_status())["ai"]["status"] == "offline"
 
 
-async def test_gemini_verdict_is_cached_between_probes(env_unset, monkeypatch):
-    env_unset.gemini_api_key = "AIza-test-key"
-    calls = stub_http(monkeypatch, {"generativelanguage": (200, 30.0, "HTTP 200")})
+async def test_ai_is_degraded_when_only_the_fallback_answers(env_unset, monkeypatch):
+    """The automations still run, so this is degraded - not offline."""
+    env_unset.nvidia_nim_api_key = "nvapi-test-key"
+    env_unset.openrouter_api_key = "sk-or-test-key"
+    ai_stubs.install(
+        monkeypatch,
+        ai_stubs.routes(
+            {
+                ai_stubs.NIM: ai_stubs.error(503),
+                ai_stubs.OPENROUTER: ai_stubs.openai_models("m"),
+            }
+        ),
+    )
+
+    status = await sp.system_status()
+    service = by_name(status)["ai"]
+    assert service["status"] == "degraded"
+    assert service["meta"]["provider"] == "nvidia_nim"
+    assert service["meta"]["fallback_provider"] == "openrouter"
+    assert service["meta"]["fallback_status"] == "online"
+
+
+async def test_ai_verdict_is_cached_between_probes(env_unset, monkeypatch):
+    env_unset.nvidia_nim_api_key = "nvapi-test-key"
+    recorder = ai_stubs.install(
+        monkeypatch, ai_stubs.routes({ai_stubs.NIM: ai_stubs.openai_models("m")})
+    )
 
     await sp.system_status()
     await sp.system_status()
-    provider_calls = [c for c in calls if "generativelanguage" in c]
-    assert len(provider_calls) == 1, "the monitor must not re-validate the key every tick"
+    assert len(recorder.calls_to(ai_stubs.NIM)) == 1, (
+        "the monitor must not re-validate the key every tick"
+    )
 
     # a forced check bypasses the cache - that is what CHECK SERVICES does
     await sp.system_status(force=True)
-    assert len([c for c in calls if "generativelanguage" in c]) == 2
+    assert len(recorder.calls_to(ai_stubs.NIM)) == 2
 
 
-async def test_gemini_cache_is_busted_by_a_key_change(env_unset, monkeypatch):
-    env_unset.gemini_api_key = "first-key"
-    calls = stub_http(monkeypatch, {"generativelanguage": (200, 30.0, "HTTP 200")})
+async def test_ai_cache_is_busted_by_a_key_change(env_unset, monkeypatch):
+    env_unset.nvidia_nim_api_key = "first-key"
+    recorder = ai_stubs.install(
+        monkeypatch, ai_stubs.routes({ai_stubs.NIM: ai_stubs.openai_models("m")})
+    )
     await sp.system_status()
 
-    env_unset.gemini_api_key = "second-key"
+    env_unset.nvidia_nim_api_key = "second-key"
     await sp.system_status()
-    assert len([c for c in calls if "generativelanguage" in c]) == 2
+    assert len(recorder.calls_to(ai_stubs.NIM)) == 2
+
+
+async def test_an_existing_gemini_only_install_keeps_working(env_unset, monkeypatch):
+    """Migration guarantee: nothing was chosen, only GEMINI_API_KEY exists."""
+    env_unset.gemini_api_key = "AIza-existing-key"
+    ai_stubs.install(
+        monkeypatch, ai_stubs.routes({ai_stubs.GEMINI: ai_stubs.gemini_models()})
+    )
+
+    service = by_name(await sp.system_status())["ai"]
+    assert service["status"] == "online"
+    assert service["meta"]["provider"] == "gemini"
 
 
 # -------------------------------------------------------------- profile ------
@@ -345,22 +378,34 @@ async def test_disabled_service_reports_not_configured(env_unset, db_session, mo
 
 async def test_probe_output_never_contains_a_secret(env_unset, db_session, monkeypatch):
     secret = "super-secret-n8n-key"
+    ai_secret = "super-secret-nvidia-key"
     env_unset.n8n_base_url = "https://n8n.example.com"
     env_unset.n8n_api_key = secret
-    env_unset.gemini_api_key = "super-secret-gemini-key"
+    env_unset.nvidia_nim_api_key = ai_secret
     stub_http(
         monkeypatch,
         {
             "/healthz": (200, 5.0, "HTTP 200"),
             "/api/v1/workflows": (401, 5.0, "HTTP 401"),
-            "generativelanguage": (403, 5.0, "HTTP 403"),
         },
     )
+    ai_stubs.install(monkeypatch, ai_stubs.routes({ai_stubs.NIM: ai_stubs.error(403)}))
 
     status = await sp.system_status()
     blob = repr(status)
     assert secret not in blob
-    assert "super-secret-gemini-key" not in blob
+    assert ai_secret not in blob
     for service in status["services"]:
         assert "@" not in service["target"] or "://" not in service["target"]
     assert by_name(status)["postgres"]["target"] == "application database"
+
+
+async def test_ai_secret_never_reaches_a_log_record(env_unset, monkeypatch, caplog):
+    """The provider is called with the key; nothing about that call is logged."""
+    ai_secret = "nvapi-super-secret-do-not-log"
+    env_unset.nvidia_nim_api_key = ai_secret
+    ai_stubs.install(monkeypatch, ai_stubs.routes({ai_stubs.NIM: ai_stubs.error(500)}))
+
+    with caplog.at_level("DEBUG"):
+        await sp.system_status()
+    assert ai_secret not in caplog.text

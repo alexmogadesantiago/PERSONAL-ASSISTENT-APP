@@ -6,12 +6,13 @@ Docker. Cuatro automatizaciones:
 
 | Workflow | Qué hace | Salida | Necesita |
 |---|---|---|---|
-| **Noticias** | feed de Google News según tus intereses → resumen con IA | Telegram | Gemini, Telegram |
-| **Marca Personal** | novedades de IA/tecnología → borrador de post de LinkedIn con tu tono | ficheros `.md` + aviso Telegram | Gemini, Telegram |
-| **Laboral** | scraping de ofertas (LinkedIn público / arbeitnow) → filtro + scoring + TOP 3 → por qué encaja | Telegram | Gemini, Telegram |
-| **Email** | lee tu Gmail → clasifica, resume y crea eventos de Calendar | Telegram + Google Calendar | Gemini, Telegram, **Google OAuth** |
+| **Noticias** | feed de Google News según tus intereses → resumen con IA | Telegram | IA, Telegram |
+| **Marca Personal** | novedades de IA/tecnología → borrador de post de LinkedIn con tu tono | ficheros `.md` + aviso Telegram | IA, Telegram |
+| **Laboral** | scraping de ofertas (LinkedIn público / arbeitnow) → filtro + scoring + TOP 3 → por qué encaja | Telegram | IA, Telegram |
+| **Email** | lee tu Gmail → clasifica, resume y crea eventos de Calendar | Telegram + Google Calendar | IA, Telegram, **Google OAuth** |
 
-Los tres primeros funcionan solo con una API key de Gemini y un bot de Telegram.
+Los tres primeros funcionan solo con una clave de un proveedor de IA
+(NVIDIA NIM, OpenRouter o Gemini) y un bot de Telegram.
 El de Email necesita además OAuth de Google. Todo el detalle en
 [CREDENCIALES.md](CREDENCIALES.md).
 
@@ -50,7 +51,10 @@ NOT_CONFIGURED  no hay nada configurado aquí — no es un error
 ## Requisitos
 
 - **Docker Desktop** (Windows x64/ARM64, Linux, macOS).
-- API key de **Gemini** (gratis): <https://aistudio.google.com/app/apikey>
+- Clave de un proveedor de IA. Recomendado **NVIDIA NIM**:
+  <https://build.nvidia.com> (alternativas: <https://openrouter.ai/keys>,
+  <https://aistudio.google.com/app/apikey>). Se configura desde el panel, en
+  **Settings → Artificial Intelligence**.
 - Un **bot de Telegram** (gratis): @BotFather.
 
 ---

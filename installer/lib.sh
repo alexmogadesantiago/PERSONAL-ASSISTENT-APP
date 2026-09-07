@@ -14,7 +14,10 @@ ap_redact() {
     -e 's/([A-Z0-9_]*(PASSWORD|API_KEY|TOKEN|SECRET|ENCRYPTION_KEY)[A-Z0-9_]*[[:space:]]*[=:][[:space:]]*)[^[:space:]]+/\1***/g' \
     -e 's/[0-9]{8,10}:AA[A-Za-z0-9_-]{20,}/***telegram-token***/g' \
     -e 's/AQ\.[A-Za-z0-9_-]{10,}/***gemini-key***/g' \
-    -e 's/AIza[A-Za-z0-9_-]{20,}/***gemini-key***/g'
+    -e 's/AIza[A-Za-z0-9_-]{20,}/***gemini-key***/g' \
+    -e 's/nvapi-[A-Za-z0-9_-]{20,}/***nvidia-nim-key***/g' \
+    -e 's/sk-or-[A-Za-z0-9_-]{20,}/***openrouter-key***/g' \
+    -e 's/acs_[A-Za-z0-9_-]{20,}/***service-token***/g'
 }
 
 ap_log() {

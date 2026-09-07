@@ -5,7 +5,7 @@ alta estas credenciales. Ordenadas de menos a más esfuerzo.
 
 | Servicio | Lo usan | Dónde se pone | Coste |
 |---|---|---|---|
-| Gemini (Google AI Studio) | Noticias, Marca Personal, Laboral, Email | `.env` | Gratis (cuota generosa) |
+| Proveedor de IA (NVIDIA NIM, OpenRouter o Gemini) | Noticias, Marca Personal, Laboral, Email | **panel web** → Settings → Artificial Intelligence | Gratis / de pago según proveedor |
 | Telegram Bot | Noticias, Marca Personal, Laboral, Email | `.env` | Gratis |
 | Google OAuth (Gmail + Calendar) | **solo** Email | n8n → Credentials | Gratis |
 
@@ -13,24 +13,52 @@ Nada de esto se sube a git: `.env` está en `.gitignore`.
 
 ---
 
-## 1. Gemini — `GEMINI_API_KEY`
+## 1. Proveedor de IA
 
-1. Entra en <https://aistudio.google.com/app/apikey> con tu cuenta Google.
-2. **Create API key** → cópiala.
-3. En `.env`:
-   ```
-   GEMINI_API_KEY=AIza...
-   GEMINI_MODEL=gemini-2.5-flash
-   ```
-4. Aplica: `docker compose up -d`
+Los workflows **ya no llevan la clave de ningún proveedor**. Llaman al
+Automation Center y es el panel quien decide quién responde, así que cambiar de
+proveedor no toca ni un workflow.
 
-Probar que va (desde la carpeta del proyecto):
+Elige **uno** (puedes añadir un segundo como respaldo):
+
+| Proveedor | Dónde sacar la clave | Notas |
+|---|---|---|
+| **NVIDIA NIM** (recomendado) | <https://build.nvidia.com> → abre un modelo → **Get API Key** (`nvapi-…`) | Principal por defecto |
+| **OpenRouter** | <https://openrouter.ai/keys> (`sk-or-…`) | Muchos modelos tras un solo endpoint; buen fallback |
+| **Gemini** | <https://aistudio.google.com/app/apikey> (`AIza…`) | Opcional. Si ya lo tenías, sigue funcionando sin tocar nada |
+
+### Configurarlo (una sola vez, sin terminal)
+
+1. Abre el panel → **Settings → Artificial Intelligence**.
+2. Elige el proveedor, pega la clave y elige el modelo.
+3. (Opcional) Marca **Enable fallback** y elige el segundo proveedor.
+4. Pulsa **TEST CONNECTION**. Hace una llamada real: si sale `ONLINE`, funciona.
+
+> **Sobre el selector de modelos de NVIDIA NIM:** lista todo el catálogo del
+> proveedor, pero no todos los modelos son invocables con tu cuenta — algunos
+> responden `404`. Por eso el botón **TEST CONNECTION** existe: confirma el
+> modelo concreto que has elegido antes de dejarlo en producción.
+
+### Dar acceso a n8n
+
+Los workflows necesitan un token para llamar a la API del Automation Center:
+
+1. En la misma pantalla → **Automation token** → **Generate**.
+2. Cópialo (**se muestra una sola vez**) y ponlo en `.env`:
+   ```
+   AC_API_URL=http://backend:8080
+   AC_SERVICE_TOKEN=acs_...
+   ```
+3. Aplica: `docker compose up -d`
+
+> En un despliegue en la nube, `AC_API_URL` es la URL pública del backend
+> **con esquema**, p. ej. `https://automation-center-api.onrender.com`.
+
+Comprobar de punta a punta (sustituye la URL y el token):
 ```bash
-curl -s -H "x-goog-api-key: TU_KEY" -H "Content-Type: application/json" \
-  -d "{\"contents\":[{\"parts\":[{\"text\":\"di hola\"}]}]}" \
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+curl -s -X POST "$AC_API_URL/api/ai/generate" -H "X-AC-Service-Token: $AC_SERVICE_TOKEN" -H "Content-Type: application/json" -d '{"prompt":"di hola"}'
 ```
-Respuesta con `"candidates"` = OK.
+Una respuesta con `"text"` y `"provider"` = OK.
 
 ---
 
@@ -116,7 +144,8 @@ servicio `playwright/`.
 
 ## Checklist rápida
 
-- [ ] `.env` con `GEMINI_API_KEY` real
+- [ ] Proveedor de IA configurado en el panel y **TEST CONNECTION** en verde
+- [ ] `.env` con `AC_API_URL` y `AC_SERVICE_TOKEN` reales
 - [ ] `.env` con `TELEGRAM_BOT_TOKEN` y `TELEGRAM_CHAT_ID` reales
 - [ ] `docker compose up -d` tras editar `.env`
 - [ ] Workflow **Noticias** probado → llega a Telegram → activado

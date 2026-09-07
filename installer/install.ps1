@@ -15,7 +15,7 @@
   No hace preguntas. Los secretos se toman de variables de entorno o de -ConfigFile.
 
 .PARAMETER ConfigFile
-  Ruta a un JSON con los secretos: { "GEMINI_API_KEY": "...", "TELEGRAM_CHAT_ID": "...", ... }
+  Ruta a un JSON con los secretos: { "AC_NVIDIA_NIM_API_KEY": "...", "TELEGRAM_CHAT_ID": "...", ... }
 
 .PARAMETER Reconfigure
   Regenera .env aunque ya exista (conserva las claves internas si puede).
@@ -50,7 +50,14 @@ $SecretSpec = @(
   @{ key='N8N_ENCRYPTION_KEY';             internal=$true  }
   @{ key='AC_JWT_SECRET';                  internal=$true  }
   @{ key='AC_CREDENTIAL_ENCRYPTION_KEY';   internal=$true; kind='fernet' }
-  @{ key='GEMINI_API_KEY';         internal=$false; hint='API key de Google AI Studio (https://aistudio.google.com/app/apikey)' }
+  # Token que n8n presenta al backend para /api/ai/generate. Lo genera el
+  # instalador: es el mismo valor en las dos puntas, asi el usuario no tiene
+  # que copiar nada entre servicios.
+  @{ key='AC_SERVICE_TOKEN';               internal=$true; kind='service' }
+  # La clave del proveedor de IA YA NO se pide aqui: se configura desde el
+  # panel (Settings -> Artificial Intelligence), que la guarda cifrada en la
+  # base de datos. Si el usuario ya tiene una, puede pegarla igualmente.
+  @{ key='AC_NVIDIA_NIM_API_KEY';  internal=$false; optional=$true; hint='(opcional) API key de NVIDIA NIM - https://build.nvidia.com. Puedes dejarlo vacio y configurarlo despues desde el panel.' }
   @{ key='TELEGRAM_CHAT_ID';       internal=$false; hint='Tu chat id de Telegram (bot <token>/getUpdates)' }
   @{ key='TELEGRAM_NOTICIAS_TOKEN';internal=$false; hint='Token del bot de Noticias (@BotFather)' }
   @{ key='TELEGRAM_TOKEN_MARCA';   internal=$false; hint='Token del bot de Marca Personal' }
@@ -60,6 +67,8 @@ $SecretSpec = @(
 
 function New-InternalSecret([hashtable]$Spec) {
   if ($Spec.ContainsKey('kind') -and $Spec.kind -eq 'fernet') { return New-ApFernetKey }
+  # El prefijo hace reconocible el token de automatizacion en un .env.
+  if ($Spec.ContainsKey('kind') -and $Spec.kind -eq 'service') { return 'acs_' + (New-ApRandomSecret 43) }
   return New-ApRandomSecret   # CSPRNG (installer/lib.ps1); nunca Get-Random
 }
 
@@ -80,10 +89,11 @@ function Write-EnvFile([string]$Path, [hashtable]$Values) {
     'N8N_PORT','N8N_HOST','WEBHOOK_URL','N8N_LOG_LEVEL','N8N_ENCRYPTION_KEY','',
     'N8N_API_URL','N8N_API_KEY','',
     'PROFILE_PORT','','TZ','',
-    'GEMINI_API_KEY','GEMINI_MODEL','',
+    'AC_API_URL','AC_SERVICE_TOKEN','',
     'TELEGRAM_CHAT_ID','TELEGRAM_NOTICIAS_TOKEN','TELEGRAM_TOKEN_MARCA','TELEGRAM_TOKEN_LABORAL','TELEGRAM_TOKEN_EMAIL','',
     'AC_ENVIRONMENT','BACKEND_PORT','FRONTEND_PORT','AC_CORS_ORIGINS','AC_CORS_ORIGIN_REGEX',
     'AC_JWT_SECRET','AC_CREDENTIAL_ENCRYPTION_KEY','AC_N8N_BASE_URL','AC_N8N_API_KEY',
+    'AC_AI_PROVIDER','AC_NVIDIA_NIM_API_KEY','AC_OPENROUTER_API_KEY','AC_GEMINI_API_KEY',
     'AC_MONITOR_INTERVAL_SECONDS','VITE_API_URL','VITE_WS_URL'
   )
   $lines = New-Object System.Collections.Generic.List[string]
@@ -169,7 +179,9 @@ if ($needEnv) {
   if (-not $env.ContainsKey('POSTGRES_USER')) { $env['POSTGRES_USER'] = 'assistant' }
   if (-not $env.ContainsKey('N8N_HOST'))      { $env['N8N_HOST'] = 'localhost' }
   if (-not $env.ContainsKey('N8N_LOG_LEVEL')) { $env['N8N_LOG_LEVEL'] = 'info' }
-  if (-not $env.ContainsKey('GEMINI_MODEL'))  { $env['GEMINI_MODEL'] = 'gemini-3.6-flash' }
+  # El backend es quien decide el proveedor de IA; n8n solo necesita saber
+  # donde esta. En una instalacion Docker es el nombre del servicio.
+  if (-not $env.ContainsKey('AC_API_URL'))    { $env['AC_API_URL'] = 'http://backend:8080' }
   if (-not $env.ContainsKey('TZ'))            { $env['TZ'] = 'Europe/Madrid' }
   if (-not $env.ContainsKey('N8N_API_URL'))   { $env['N8N_API_URL'] = 'http://localhost:5678' }
   if (-not $env.ContainsKey('AC_ENVIRONMENT')){ $env['AC_ENVIRONMENT'] = 'production' }
@@ -190,7 +202,9 @@ if ($needEnv) {
       Write-Host "   $k  —  $($spec.hint)" -ForegroundColor DarkGray
       $val = Read-Host "   $k (Enter para dejarlo pendiente)"
     }
-    if ($val) { $env[$k] = $val } else { $env[$k] = ''; $missing += $k }
+    if ($val) { $env[$k] = $val }
+    elseif ($spec.ContainsKey('optional') -and $spec.optional) { $env[$k] = '' }
+    else { $env[$k] = ''; $missing += $k }
   }
   Write-EnvFile $envPath $env
   Write-ApOk '.env escrito'

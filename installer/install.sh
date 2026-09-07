@@ -4,7 +4,7 @@
 #  Uso:  ./installer/install.sh [--unattended] [--config FILE] [--reconfigure]
 #                               [--force] [--no-browser]
 #  Los secretos, en modo --unattended, se leen de variables de entorno o de
-#  --config FILE (JSON plano: {"GEMINI_API_KEY":"...", ...}).
+#  --config FILE (JSON plano: {"AC_NVIDIA_NIM_API_KEY":"...", ...}).
 # ============================================================================
 set -eu
 
@@ -96,14 +96,33 @@ if [ "$NEED_ENV" = "1" ]; then
   [ -n "$(env_get POSTGRES_DB)" ]   || env_set POSTGRES_DB assistant
   [ -n "$(env_get POSTGRES_USER)" ] || env_set POSTGRES_USER assistant
   [ -n "$(env_get N8N_HOST)" ]      || env_set N8N_HOST localhost
-  [ -n "$(env_get GEMINI_MODEL)" ]  || env_set GEMINI_MODEL gemini-3.6-flash
+  # El backend decide el proveedor de IA; n8n solo necesita saber donde esta.
+  [ -n "$(env_get AC_API_URL)" ]    || env_set AC_API_URL http://backend:8080
   [ -n "$(env_get TZ)" ]            || env_set TZ "$(cat /etc/timezone 2>/dev/null || echo Europe/Madrid)"
   [ -n "$(env_get POSTGRES_PASSWORD)" ]  || env_set POSTGRES_PASSWORD "$(rand_secret)"
   [ -n "$(env_get N8N_ENCRYPTION_KEY)" ] || env_set N8N_ENCRYPTION_KEY "$(rand_secret)"
+  # Token con el que n8n llama a /api/ai/generate. Lo genera el instalador
+  # para que el usuario no tenga que copiar nada entre servicios.
+  [ -n "$(env_get AC_SERVICE_TOKEN)" ]   || env_set AC_SERVICE_TOKEN "acs_$(rand_secret)"
+
+  # La clave del proveedor de IA es OPCIONAL: lo normal es configurarla desde
+  # el panel (Settings -> Artificial Intelligence), que la guarda cifrada en la
+  # base de datos. Dejarla vacia no bloquea el arranque.
+  k="AC_NVIDIA_NIM_API_KEY"
+  if [ -z "$(env_get "$k")" ]; then
+    val=""
+    if v="$(cfg_get "$k")" && [ -n "$v" ]; then val="$v"
+    elif [ -n "${AC_NVIDIA_NIM_API_KEY:-}" ]; then val="$AC_NVIDIA_NIM_API_KEY"
+    elif [ "$UNATTENDED" = "0" ]; then
+      printf '   %s - (opcional) API key de NVIDIA NIM: https://build.nvidia.com\n' "$k"
+      printf '   %s (Enter para configurarlo luego desde el panel): ' "$k"
+      read -r val || val=""
+    fi
+    env_set "$k" "$val"
+  fi
 
   MISSING=""
   for spec in \
-    "GEMINI_API_KEY|API key de Google AI Studio" \
     "TELEGRAM_CHAT_ID|Tu chat id de Telegram" \
     "TELEGRAM_NOTICIAS_TOKEN|Token del bot de Noticias" \
     "TELEGRAM_TOKEN_MARCA|Token del bot de Marca Personal" \

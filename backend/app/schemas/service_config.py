@@ -13,6 +13,8 @@ class ServiceConfigOut(BaseModel):
 
     service: str
     label: str
+    #: infra | ai | internal - the panel groups cards by this
+    category: str = "infra"
     configured: bool
     enabled: bool
     #: database | environment | none - tells the user where the value came from

@@ -1,5 +1,14 @@
 import { api } from "./client";
 import type {
+  AiConfig,
+  AiConfigUpdate,
+  AiHealth,
+  AiModelList,
+  AiProviderId,
+  AiProviderInfo,
+  AiServiceTokenCreated,
+  AiServiceTokenStatus,
+  AiTestResult,
   Credential,
   CredentialTestResult,
   HealthResponse,
@@ -102,6 +111,31 @@ export const servicesApi = {
   update: (service: string, input: ServiceConfigUpdate) =>
     api.put<ServiceConfig>(`/api/services/config/${service}`, input),
   test: (service: string) => api.post<ServiceTestResult>(`/api/services/config/${service}/test`),
+};
+
+/**
+ * Artificial Intelligence. The panel picks a provider and a model; the
+ * automations never do - they call `/api/ai/generate` and get whatever the
+ * platform is configured to use.
+ *
+ * No response here carries an API key. `serviceToken.rotate` is the single
+ * exception: the freshly minted token has to be shown once so it can be pasted
+ * into n8n.
+ */
+export const aiApi = {
+  providers: () => api.get<{ data: AiProviderInfo[] }>("/api/ai/providers"),
+  config: () => api.get<AiConfig>("/api/ai/config"),
+  update: (input: AiConfigUpdate) => api.put<AiConfig>("/api/ai/config", input),
+  models: (provider?: AiProviderId, refresh = false) =>
+    api.get<AiModelList>("/api/ai/models", { provider, refresh }),
+  test: (input: { provider?: AiProviderId; model?: string } = {}) =>
+    api.post<AiTestResult>("/api/ai/test", input),
+  health: (force = false) => api.get<AiHealth>("/api/ai/health", { force }),
+  serviceToken: {
+    status: () => api.get<AiServiceTokenStatus>("/api/ai/service-token"),
+    rotate: () => api.post<AiServiceTokenCreated>("/api/ai/service-token"),
+    revoke: () => api.del<AiServiceTokenStatus>("/api/ai/service-token"),
+  },
 };
 
 export const n8nApi = {

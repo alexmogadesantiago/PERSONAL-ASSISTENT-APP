@@ -60,9 +60,14 @@ services:
       EXECUTIONS_TIMEOUT: "300"
       # Allow Code nodes to read the mounted profile files (local, single-user).
       NODE_FUNCTION_ALLOW_BUILTIN: "fs"
+      # --- how the workflows reach the platform's AI API ---
+      # The workflows no longer hold a provider key: they POST to the backend,
+      # which decides the provider (NVIDIA NIM / OpenRouter / Gemini) from the
+      # panel. AC_SERVICE_TOKEN is generated in Settings -> Artificial
+      # Intelligence and pasted into .env.
+      AC_API_URL: ${AC_API_URL:-http://backend:8080}
+      AC_SERVICE_TOKEN: ${AC_SERVICE_TOKEN:-}
       # --- secrets consumed by workflow HTTP nodes ---
-      GEMINI_API_KEY: ${GEMINI_API_KEY}
-      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.6-flash}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
       # Un bot de Telegram por workflow (ver CREDENCIALES.md).
       TELEGRAM_NOTICIAS_TOKEN: ${TELEGRAM_NOTICIAS_TOKEN:-}
@@ -80,6 +85,10 @@ services:
       postgres:
         condition: service_healthy
       playwright:
+        condition: service_healthy
+      # The workflows call the platform's AI API, so n8n must not start
+      # answering triggers before the backend can serve /api/ai/generate.
+      backend:
         condition: service_healthy
     networks:
       - assistant
@@ -161,7 +170,26 @@ services:
       # `profiles` table and checks the data is actually usable, so there is no
       # AC_PROFILE_BASE_URL here. The `profile` container below is a local
       # helper that maintains config/user_profile.json for the n8n Code nodes.
-      # --- AI provider ---
+      # --- AI providers -------------------------------------------------
+      # All optional: the panel writes the same settings into `service_configs`,
+      # which wins over the environment. Leave every key empty and the platform
+      # simply reports AI as NOT CONFIGURED until someone fills it in from
+      # Settings -> Artificial Intelligence.
+      #
+      # Empty AC_AI_PROVIDER means "decide automatically": the first provider
+      # holding a credential, in the order NVIDIA NIM -> OpenRouter -> Gemini.
+      # That is what keeps an existing GEMINI_API_KEY-only install working.
+      AC_AI_PROVIDER: ${AC_AI_PROVIDER:-}
+      AC_AI_MODEL: ${AC_AI_MODEL:-}
+      AC_AI_FALLBACK_PROVIDER: ${AC_AI_FALLBACK_PROVIDER:-}
+      AC_AI_SERVICE_TOKEN: ${AC_SERVICE_TOKEN:-}
+      AC_NVIDIA_NIM_API_KEY: ${AC_NVIDIA_NIM_API_KEY:-${NVIDIA_NIM_API_KEY:-}}
+      AC_NVIDIA_NIM_BASE_URL: ${NVIDIA_NIM_BASE_URL:-}
+      AC_NVIDIA_NIM_MODEL: ${NVIDIA_NIM_MODEL:-}
+      AC_OPENROUTER_API_KEY: ${AC_OPENROUTER_API_KEY:-${OPENROUTER_API_KEY:-}}
+      AC_OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-}
+      AC_OPENROUTER_MODEL: ${OPENROUTER_MODEL:-}
+      # Gemini stays supported; it is simply no longer required.
       AC_GEMINI_API_KEY: ${AC_GEMINI_API_KEY:-${GEMINI_API_KEY:-}}
       AC_GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
       AC_COMPOSE_PROJECT: personal-assistant

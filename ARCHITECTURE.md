@@ -18,19 +18,23 @@ store of state, and an **installer** that bootstraps all of it on a machine.
                                     │
         ┌───────────────┬───────────┴──────────┬──────────────┐
         ▼               ▼                      ▼              ▼
-  ┌───────────┐   ┌───────────┐         ┌────────────┐  ┌──────────┐
-  │ Postgres  │   │    n8n    │         │ Playwright │  │  Gemini  │
-  │ state +   │   │ workflows │         │  scraper   │  │ (or any  │
-  │ config    │   │           │         │  (private) │  │ provider)│
-  └───────────┘   └─────┬─────┘         └────────────┘  └──────────┘
-                        │
-        ┌───────────────┼────────────────┐
-        ▼               ▼                ▼
-      Gmail         Calendar          Tasks / Telegram
+  ┌───────────┐   ┌───────────┐         ┌────────────┐  ┌──────────────┐
+  │ Postgres  │   │    n8n    │         │ Playwright │  │  AI Service  │
+  │ state +   │   │ workflows │         │  scraper   │  │  (in-process)│
+  │ config    │   │           │         │  (private) │  └──────┬───────┘
+  └───────────┘   └─────┬─────┘         └────────────┘         │
+                        │                            ┌─────────┼─────────┐
+        ┌───────────────┼────────────────┐            ▼         ▼         ▼
+        ▼               ▼                ▼        NVIDIA   OpenRouter  Gemini
+      Gmail         Calendar     Tasks / Telegram   NIM     (fallback) (optional)
+                                                  (primary)
 ```
 
-The backend never proxies workflow traffic. n8n calls Gemini, Gmail and the
-scraper directly; the backend configures, observes and reports on it.
+The backend does not proxy workflow traffic in general: n8n calls Gmail, the
+scraper and Telegram directly. AI is the deliberate exception. The workflows
+POST to `/api/ai/generate` and the backend chooses the provider, so swapping
+NVIDIA NIM for OpenRouter is a panel setting, not a workflow edit — and no
+provider key is ever handed to n8n.
 
 ---
 
@@ -55,7 +59,8 @@ Every integration resolves its endpoint and secret through
 1. **the `service_configs` table** — written from the panel (Settings →
    Services). Secrets are encrypted with Fernet using
    `AC_CREDENTIAL_ENCRYPTION_KEY`, which lives outside the database.
-2. **the environment** (`AC_*`, plus the legacy `N8N_*` / `GEMINI_*` names) —
+2. **the environment** (`AC_*`, plus the legacy `N8N_*` / `GEMINI_*` /
+   `NVIDIA_NIM_*` / `OPENROUTER_*` names) —
    what the installer or the hosting provider injected.
 3. **nothing** → the service reports `not_configured`.
 
@@ -111,7 +116,7 @@ Per service:
 | n8n | `http` | `GET /healthz`, then `GET /api/v1/workflows?limit=1` with the API key |
 | playwright | `http` | `GET /health` on the resolved endpoint |
 | profile | `data` | the `profiles` table contains a profile carrying the minimum fields |
-| gemini | `provider` | `GET /v1beta/models` with the key in the `x-goog-api-key` header; verdict cached for `AC_GEMINI_VERIFY_TTL_SECONDS` |
+| ai | `provider` | the *configured* provider is called for real (a cheap authenticated model listing, which costs no tokens); verdict cached for `AC_AI_VERIFY_TTL_SECONDS`. A dead primary with a live fallback reports `degraded`, not `offline` — the automations still run. |
 
 ### Why PROFILE is a database check
 
@@ -185,3 +190,69 @@ Migrations are Alembic, in `backend/migrations/versions/`. The entrypoint runs
 * [DEVELOPMENT.md](DEVELOPMENT.md) — working on the code
 * [docs/CLOUD-DEPLOYMENT.md](docs/CLOUD-DEPLOYMENT.md) — Vercel + Render
 * [CREDENCIALES.md](CREDENCIALES.md) — which credentials each automation needs
+
+
+---
+
+## AI provider abstraction
+
+```
+Automation (n8n)
+      │  POST /api/ai/generate  (X-AC-Service-Token)
+      ▼
+   AIService          resolve config → pick provider → apply fallback policy
+      │
+      ├── NvidiaNimProvider   (primary, OpenAI-compatible)
+      ├── OpenRouterProvider  (fallback, OpenAI-compatible)
+      └── GeminiProvider      (optional, generateContent)
+      │
+      ▼
+  AIResponse { text, data, provider, model, usage }
+```
+
+Every provider implements one interface (`app/services/ai/base.AIProvider`), so
+nothing above it knows or cares which one answered. Structured output is part of
+the contract: a caller sends plain JSON Schema and each provider translates it
+into its own dialect — Gemini's upper-case `responseSchema`, OpenRouter's native
+`json_schema`, NIM's `json_object` plus `nvext.guided_json` — and the reply is
+parsed and checked against the schema's required fields before it is returned.
+
+### Where the configuration lives
+
+| What | Where | Notes |
+|---|---|---|
+| provider, model, fallback, limits | `service_configs` row `ai`, in `meta` | written by the panel |
+| each provider's key + endpoint | `service_configs` rows `nvidia_nim` / `openrouter` / `gemini` | Fernet-encrypted, same master key as `credentials` |
+| automation token | `service_configs` row `ai`, in `encrypted_secret` | shown once on generation |
+| environment fallback | `AC_AI_*`, `AC_NVIDIA_NIM_*`, `AC_OPENROUTER_*`, `AC_GEMINI_*` | used when the table is empty |
+
+No migration was needed: the existing `service_configs` table already carried a
+`meta` JSON column and an encrypted secret column.
+
+With nothing selected, the provider is inferred: the first one holding a
+credential, in the order NVIDIA NIM → OpenRouter → Gemini. That is what keeps an
+existing `GEMINI_API_KEY`-only installation running unchanged.
+
+### Fallback policy
+
+The fallback is attempted only for failures another provider could survive:
+timeout, HTTP 429, HTTP 5xx, connection refused. HTTP 400 (bad request) and
+401/403 (rejected credential) are raised immediately — replaying them elsewhere
+would spend a second quota to reach the same conclusion and would hide the real
+fault from the operator.
+
+### Notes verified against the live providers
+
+* **NIM's `GET /models` is a catalogue, not an entitlement list.** The hosted
+  endpoint listed 81 models for a real key while several of them answered HTTP
+  404 on `/chat/completions`. The default model is therefore one confirmed to
+  serve, and `GET /api/ai/models` labels the list with that caveat instead of
+  implying every entry is callable.
+* **`nvext.guided_json` is opt-in.** Sending it unconditionally was verified to
+  fail with HTTP 400 `unknown field guided_json` on engines that do not
+  implement it - turning a working model into a hard error. The default path
+  asks for `response_format: json_object` and describes the schema in the
+  prompt, which every JSON-capable model accepts.
+* **The connection test needs a real token budget.** A reasoning model spends
+  output tokens before it writes anything, so a tight `max_tokens` returns an
+  empty completion and a healthy provider would be reported as broken.

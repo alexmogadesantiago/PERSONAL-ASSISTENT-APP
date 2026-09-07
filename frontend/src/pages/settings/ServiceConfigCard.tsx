@@ -6,10 +6,14 @@ import { relativeTime } from "@/utils/format";
 import type { ServiceConfig } from "@/api/types";
 
 /**
- * One integration's settings. Saving writes to the backend's `service_configs`
- * table, which takes precedence over the environment, so a user can point the
- * platform at a real n8n/Playwright/Gemini without touching `.env` or waiting
- * for a redeploy (Phase 6).
+ * One infrastructure integration's settings. Saving writes to the backend's
+ * `service_configs` table, which takes precedence over the environment, so a
+ * user can point the platform at a real n8n or Playwright without touching
+ * `.env` or waiting for a redeploy (Phase 6).
+ *
+ * AI providers deliberately do NOT use this card: choosing a provider, a model
+ * and a fallback is a different shape of decision from "here is a URL and a
+ * key". They live in `AiSettingsCard`.
  *
  * The stored secret is never sent to the browser: the field starts empty and an
  * empty field means "keep what is stored", which is why saving a URL alone does
@@ -23,9 +27,6 @@ const HELP: Record<string, { url?: string; secret?: string }> = {
   },
   playwright: {
     url: "Public HTTPS URL of the scraper sidecar, e.g. https://playwright.midominio.com.",
-  },
-  gemini: {
-    secret: "Google AI Studio → Get API key.",
   },
 };
 

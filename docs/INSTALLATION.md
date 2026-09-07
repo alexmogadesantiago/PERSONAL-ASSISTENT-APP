@@ -56,7 +56,8 @@ ARM32/ARMv7.
 AutomationCenter-Setup.exe /VERYSILENT /SUPPRESSMSGBOXES
 ```
 
-Los secretos externos (Gemini, Telegram) se rellenan luego en `.env` o desde
+Los secretos externos (proveedor de IA, Telegram) se rellenan luego desde el
+panel o en `.env`, según
 el panel. Con `installer\install.ps1 -Unattended -ConfigFile secrets.json`
 se pueden inyectar en la instalación.
 
@@ -131,7 +132,9 @@ plataforma a tus propias instancias:
 |---|---|---|
 | **n8n** | URL pública + API key | La URL de tu n8n; la key en n8n → Settings → n8n API |
 | **Playwright** | URL | El sidecar de scraping (en local: `http://playwright:3000`) |
-| **Gemini** | API key | <https://aistudio.google.com/app/apikey> |
+| **NVIDIA NIM** (IA recomendada) | API key | <https://build.nvidia.com> |
+| **OpenRouter** (IA alternativa) | API key | <https://openrouter.ai/keys> |
+| **Gemini** (IA opcional) | API key | <https://aistudio.google.com/app/apikey> |
 
 Lo que guardes aquí se cifra en PostgreSQL y **tiene prioridad sobre las
 variables de entorno**. Se aplica en la siguiente comprobación de salud
@@ -191,7 +194,8 @@ Icono de bandeja (si lo activaste): mismo menú + estado ● Running/Stopped.
 | Todo sale `NOT_CONFIGURED` | Normal si solo has desplegado el backend. Configúralo en Ajustes → Servicios. |
 | n8n sale `DEGRADED` | Es alcanzable pero rechaza la API key. Genérala de nuevo en n8n → Settings → n8n API y vuelve a guardarla en el panel. |
 | Al guardar una clave sale 503 | Falta `AC_CREDENTIAL_ENCRYPTION_KEY`. Sin ella no se puede cifrar nada. |
-| Gemini sale `INVALID` | El proveedor rechaza la clave (no es un fallo de red). Compruébala en Google AI Studio. |
+| **AI** sale `INVALID` | El proveedor configurado rechaza la clave (no es un fallo de red). Compruébala en su consola y vuelve a probar desde Settings → Artificial Intelligence. |
+| **AI** sale `DEGRADED` | El proveedor principal está caído y responde el de respaldo. Las automatizaciones siguen funcionando. |
 | PROFILE sigue en `NOT_CONFIGURED` | El perfil existe pero le faltan campos. Setup → Profile los lista uno a uno. |
 | El estado no cambia tras configurar | El veredicto está cacheado. Pulsa **Check services**. |
 

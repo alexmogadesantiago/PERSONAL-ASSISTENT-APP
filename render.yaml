@@ -98,6 +98,35 @@ services:
           name: automation-center-playwright
           type: pserv
           property: hostport           # internal host:port, never public
+      # --- AI providers -------------------------------------------------
+      # Every one of these is optional. The panel (Settings -> Artificial
+      # Intelligence) writes the same settings into `service_configs`, which
+      # takes precedence, so a provider can be added or swapped with no
+      # redeploy. They are declared here only so an operator *may* seed them.
+      #
+      # Empty AC_AI_PROVIDER = decide automatically: the first provider with a
+      # credential, in the order NVIDIA NIM -> OpenRouter -> Gemini.
+      - key: AC_AI_PROVIDER
+        sync: false
+      - key: AC_AI_MODEL
+        sync: false
+      - key: AC_AI_FALLBACK_PROVIDER
+        sync: false
+      # Shared secret n8n presents to POST /api/ai/generate. Generate it from
+      # the panel and paste the same value into the n8n service below.
+      - key: AC_AI_SERVICE_TOKEN
+        sync: false
+      - key: AC_NVIDIA_NIM_API_KEY
+        sync: false                    # build.nvidia.com -> Get API Key
+      - key: AC_NVIDIA_NIM_BASE_URL
+        sync: false                    # only for a self-hosted NIM
+      - key: AC_NVIDIA_NIM_MODEL
+        sync: false
+      - key: AC_OPENROUTER_API_KEY
+        sync: false                    # openrouter.ai/keys
+      - key: AC_OPENROUTER_MODEL
+        sync: false
+      # Gemini stays supported; it is simply no longer required.
       - key: AC_GEMINI_API_KEY
         sync: false                    # Google AI Studio -> Get API key
       - key: AC_GEMINI_MODEL
@@ -188,11 +217,18 @@ services:
         value: all
       - key: EXECUTIONS_TIMEOUT
         value: "300"
-      # Consumed by the workflows' HTTP nodes.
-      - key: GEMINI_API_KEY
+      # How the workflows reach the platform's AI API. They no longer carry a
+      # provider key: they POST to the backend, which picks the provider.
+      # Full origin of the backend, WITH the scheme, e.g.
+      #   https://automation-center-api.onrender.com
+      # (`fromService.property: host` yields a bare hostname, which is not a
+      # usable base URL, so this is set by hand.)
+      - key: AC_API_URL
         sync: false
-      - key: GEMINI_MODEL
-        value: gemini-2.5-flash
+      # Same value as AC_AI_SERVICE_TOKEN on the backend service above.
+      - key: AC_SERVICE_TOKEN
+        sync: false
+      # Consumed by the workflows' HTTP nodes.
       - key: TELEGRAM_CHAT_ID
         sync: false
       - key: TELEGRAM_NOTICIAS_TOKEN

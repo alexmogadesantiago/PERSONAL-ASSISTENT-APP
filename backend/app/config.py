@@ -23,6 +23,11 @@ class Settings(BaseSettings):
         env_file=(".env", "backend/.env"),
         env_file_encoding="utf-8",
         extra="ignore",
+        # Several fields carry a `validation_alias` so they also accept the
+        # short legacy names (GEMINI_API_KEY, N8N_API_URL...). Without this,
+        # constructing Settings(field_name=...) in a test would silently fall
+        # back to the environment instead of the value passed in.
+        populate_by_name=True,
     )
 
     environment: Environment = "development"
@@ -74,18 +79,77 @@ class Settings(BaseSettings):
         default="", validation_alias=AliasChoices("AC_N8N_API_KEY", "N8N_API_KEY")
     )
 
-    # --- Gemini / AI provider ---
-    # Also honours the plain GEMINI_API_KEY name already used by the workflows.
+    # --- AI providers -------------------------------------------------------
+    # Nothing here is required: the panel writes the same settings into the
+    # `service_configs` table, which wins over the environment. These values are
+    # the installer / hosting fallback and keep existing deployments working.
+    #
+    # Selection. Empty `ai_provider` means "decide automatically": the first
+    # provider (in registry preference order NVIDIA NIM -> OpenRouter -> Gemini)
+    # that actually has a credential. That is what keeps a pre-existing
+    # Gemini-only install running with no configuration change.
+    ai_provider: str = Field(default="", validation_alias=AliasChoices("AC_AI_PROVIDER", "AI_PROVIDER"))
+    ai_model: str = Field(default="", validation_alias=AliasChoices("AC_AI_MODEL", "AI_MODEL"))
+    ai_temperature: float = 0.2
+    ai_max_tokens: int = 2048
+    ai_timeout_seconds: float = 60.0
+    ai_fallback_enabled: bool = True
+    ai_fallback_provider: str = Field(
+        default="", validation_alias=AliasChoices("AC_AI_FALLBACK_PROVIDER", "AI_FALLBACK_PROVIDER")
+    )
+    ai_fallback_model: str = Field(
+        default="", validation_alias=AliasChoices("AC_AI_FALLBACK_MODEL", "AI_FALLBACK_MODEL")
+    )
+    # How long a successful live provider verification is trusted before the
+    # monitor calls it again. The monitor loop ticks every few seconds;
+    # re-validating a key that often would waste provider quota.
+    ai_verify_ttl_seconds: float = 300.0
+    # How long a fetched model list is cached (the list changes rarely).
+    ai_models_ttl_seconds: float = 900.0
+    # Shared secret an automation (n8n) presents to POST /api/ai/generate.
+    # Normally generated from the panel and stored encrypted in the database;
+    # this is only the environment fallback.
+    ai_service_token: str = Field(
+        default="", validation_alias=AliasChoices("AC_AI_SERVICE_TOKEN", "AI_SERVICE_TOKEN")
+    )
+
+    # NVIDIA NIM (primary). The base URL is configuration, not a constant: a
+    # self-hosted NIM container answers the same API on its own host.
+    nvidia_nim_api_key: str = Field(
+        default="", validation_alias=AliasChoices("AC_NVIDIA_NIM_API_KEY", "NVIDIA_NIM_API_KEY")
+    )
+    nvidia_nim_base_url: str = Field(
+        default="", validation_alias=AliasChoices("AC_NVIDIA_NIM_BASE_URL", "NVIDIA_NIM_BASE_URL")
+    )
+    nvidia_nim_model: str = Field(
+        default="", validation_alias=AliasChoices("AC_NVIDIA_NIM_MODEL", "NVIDIA_NIM_MODEL")
+    )
+
+    # OpenRouter (fallback).
+    openrouter_api_key: str = Field(
+        default="", validation_alias=AliasChoices("AC_OPENROUTER_API_KEY", "OPENROUTER_API_KEY")
+    )
+    openrouter_base_url: str = Field(
+        default="", validation_alias=AliasChoices("AC_OPENROUTER_BASE_URL", "OPENROUTER_BASE_URL")
+    )
+    openrouter_model: str = Field(
+        default="", validation_alias=AliasChoices("AC_OPENROUTER_MODEL", "OPENROUTER_MODEL")
+    )
+
+    # Gemini (optional). Also honours the plain GEMINI_API_KEY name the
+    # workflows have always used, so no existing `.env` has to change.
     gemini_api_key: str = Field(
         default="", validation_alias=AliasChoices("AC_GEMINI_API_KEY", "GEMINI_API_KEY")
+    )
+    gemini_base_url: str = Field(
+        default="", validation_alias=AliasChoices("AC_GEMINI_BASE_URL", "GEMINI_BASE_URL")
     )
     gemini_model: str = Field(
         default="gemini-2.5-flash",
         validation_alias=AliasChoices("AC_GEMINI_MODEL", "GEMINI_MODEL"),
     )
-    # How long a successful live Gemini verification is trusted before the
-    # monitor calls the provider again. The monitor loop ticks every few
-    # seconds; re-validating a key that often would waste provider quota.
+    # Deprecated alias of `ai_verify_ttl_seconds`, kept so an existing `.env`
+    # carrying AC_GEMINI_VERIFY_TTL_SECONDS still loads.
     gemini_verify_ttl_seconds: float = 300.0
 
     # --- Optional sidecar services ---

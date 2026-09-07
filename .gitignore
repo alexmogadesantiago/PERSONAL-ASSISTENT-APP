@@ -1,5 +1,10 @@
 # Secretos y configuración local
 .env
+# Copias de seguridad del .env: llevan los mismos secretos y `.env` solo
+# ignora el nombre exacto.
+.env.backup*
+.env.bak
+.env.local
 # Claves privadas / material criptografico (NUNCA en git)
 *.pem
 *.key

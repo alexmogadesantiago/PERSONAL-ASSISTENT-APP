@@ -94,6 +94,10 @@ class MetricsHub:
                         "latency_ms": s.latency_ms,
                         "detail": s.detail,
                         "checked_at": s.checked_at,
+                        # Probe-supplied context (AI provider and model, n8n key
+                        # validity, profile counts). Never a secret - the probes
+                        # build `meta` from labels and booleans only.
+                        "meta": s.meta,
                     }
                 )
         except Exception as exc:  # noqa: BLE001

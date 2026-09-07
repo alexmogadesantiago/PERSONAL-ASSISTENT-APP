@@ -44,7 +44,7 @@ Alternativa sin `.exe` (paquete portable):
 
 1. Descomprime `automation-platform-<versión>-windows-<arch>.zip`.
 2. **Doble clic en `AutomationPlatform-Setup.cmd`.**
-3. Responde a las preguntas (claves de Gemini y Telegram — ver
+3. Responde a las preguntas (clave del proveedor de IA y Telegram — ver
    [CREDENCIALES.md](CREDENCIALES.md); puedes dejarlas en blanco y rellenarlas
    luego en `.env`).
 4. Al terminar se abre el navegador en Automation Center (`localhost:3000`).
@@ -55,7 +55,7 @@ Modo desatendido (sin preguntas), tomando los secretos de un JSON:
 powershell -ExecutionPolicy Bypass -File installer\install.ps1 -Unattended -ConfigFile secrets.json
 ```
 
-o de variables de entorno (`$env:GEMINI_API_KEY = "..."`, etc.).
+o de variables de entorno (`$env:AC_NVIDIA_NIM_API_KEY = "..."`, etc.).
 
 Desinstalar:
 

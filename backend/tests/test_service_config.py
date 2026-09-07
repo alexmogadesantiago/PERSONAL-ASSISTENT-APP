@@ -11,7 +11,6 @@ The contract this locks down:
 """
 from __future__ import annotations
 
-from types import SimpleNamespace
 
 import pytest
 
@@ -22,18 +21,9 @@ SECRET = "n8n_api_key_super_secret_value"
 
 
 @pytest.fixture
-def env_unset(monkeypatch):
-    cfg = SimpleNamespace(
-        n8n_base_url="",
-        n8n_api_key="",
-        playwright_base_url="",
-        profile_base_url="",
-        gemini_api_key="",
-        gemini_model="gemini-2.5-flash",
-        gemini_verify_ttl_seconds=300.0,
-    )
-    monkeypatch.setattr(svc, "get_settings", lambda: cfg)
-    return cfg
+def env_unset(settings_factory):
+    """Nothing configured through the environment."""
+    return settings_factory()
 
 
 # ------------------------------------------------------------- resolution ----

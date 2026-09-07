@@ -46,7 +46,7 @@ python -m pytest -q
 ```
 
 The suite runs on in-memory SQLite and is hermetic: `tests/conftest.py` strips
-n8n/Gemini environment variables so a developer machine that exports them
+n8n/AI-provider environment variables so a developer machine that exports them
 cannot make the monitor tests pass or fail by accident. The `client` fixture
 also points the health probes at the test database, because the monitor opens
 its own sessions outside the request cycle.
@@ -167,7 +167,9 @@ the API lists.
 | Everything shows `not_configured` | Only the backend is deployed | Expected. Configure the services in Settings → Services. |
 | n8n is `degraded` | Reachable, but the API key is rejected | Regenerate it in n8n → Settings → n8n API and save it again in the panel. |
 | Saving a key returns 503 | `AC_CREDENTIAL_ENCRYPTION_KEY` is unset | Generate a Fernet key and set it; without it nothing can be stored encrypted. |
-| Gemini is `invalid` | The provider refuses the key | Check it in Google AI Studio. `invalid` means the key was rejected, not that the network failed. |
+| AI is `invalid` | The configured provider refuses the key | `invalid` means rejected, not unreachable. Check the key in that provider's console (build.nvidia.com / openrouter.ai / aistudio.google.com) and re-test from Settings → Artificial Intelligence. |
+| AI is `degraded` | The primary provider is down and the fallback is serving | Not an outage: the automations still run. The tile names both providers. |
+| AI is `not_configured` | No provider holds a credential | Normal for a fresh install. Add one in Settings → Artificial Intelligence. |
 | Profile stays `not_configured` | The row exists but the required fields are empty | Open /setup → Profile; it lists exactly which fields are missing. |
 | A stale status after a config change | The verdict is cached | Press **Check services**, or `POST /api/system/check`. |
 | Frontend cannot reach the backend | CORS or `VITE_API_URL` | `AC_CORS_ORIGINS` must list the exact frontend origin; `*` is rejected. |

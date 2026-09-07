@@ -34,12 +34,15 @@ $script:AP_SECRET_KEYS = @('PASSWORD','API_KEY','TOKEN','SECRET','ENCRYPTION_KEY
 
 function Protect-ApString([string]$Text) {
   if (-not $Text) { return $Text }
-  # oculta valores tipo CLAVE=xxxx y tokens de Telegram/Gemini
+  # oculta valores tipo CLAVE=xxxx y los formatos de token conocidos
   $t = $Text
   $t = [regex]::Replace($t, '(?i)([A-Z0-9_]*(PASSWORD|API_KEY|TOKEN|SECRET|ENCRYPTION_KEY)[A-Z0-9_]*\s*[=:]\s*)\S+', '${1}***')
   $t = [regex]::Replace($t, '\b\d{8,10}:AA[\w-]{20,}\b', '***telegram-token***')
   $t = [regex]::Replace($t, '\bAQ\.[A-Za-z0-9_\-]{10,}\b', '***gemini-key***')
   $t = [regex]::Replace($t, '\bAIza[A-Za-z0-9_\-]{20,}\b', '***gemini-key***')
+  $t = [regex]::Replace($t, '\bnvapi-[A-Za-z0-9_\-]{20,}\b', '***nvidia-nim-key***')
+  $t = [regex]::Replace($t, '\bsk-or-[A-Za-z0-9_\-]{20,}\b', '***openrouter-key***')
+  $t = [regex]::Replace($t, '\bacs_[A-Za-z0-9_\-]{20,}\b', '***service-token***')
   return $t
 }
 

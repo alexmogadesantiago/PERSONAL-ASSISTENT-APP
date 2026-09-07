@@ -13,15 +13,17 @@ export interface MonitorServiceStatus {
   latency_ms: number | null;
   detail: string;
   updatedAt: string;
+  /** Probe context: AI provider and model, n8n key validity, profile counts. */
+  meta?: Record<string, unknown>;
 }
 
 /** Healthy statuses. `configured` is the healthy state for services you cannot
- *  ping (profile data, an accepted API key). */
+ *  ping (profile data in Postgres). */
 const HEALTHY: ServiceStatus[] = ["online", "configured"];
 const FAILED: ServiceStatus[] = ["offline", "invalid"];
 
 /** Dashboard reading order: infrastructure first, then integrations. */
-export const SERVICE_ORDER = ["postgres", "n8n", "playwright", "profile", "gemini"];
+export const SERVICE_ORDER = ["postgres", "n8n", "playwright", "profile", "ai"];
 
 export function serviceRank(name: string): number {
   const i = SERVICE_ORDER.indexOf(name);
@@ -53,6 +55,7 @@ interface ServiceEvent {
   latency_ms: number | null;
   detail: string;
   checked_at?: string;
+  meta?: Record<string, unknown>;
 }
 
 const HISTORY_LIMIT = 60;
@@ -107,6 +110,7 @@ export function useMonitorWebSocket(): MonitorState {
               latency_ms: s.latency_ms,
               detail: s.detail,
               updatedAt: s.checked_at ?? s.timestamp,
+              meta: s.meta,
             },
           }));
         }

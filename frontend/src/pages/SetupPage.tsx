@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
+  useAiConfig,
   useForceServiceCheck,
   useProfileCompleteness,
   useServiceConfigs,
@@ -11,11 +12,12 @@ import { useAuth } from "@/stores/auth";
 import { Badge, Button, Card, CardTitle, PageHeader } from "@/components/ui";
 import { STATUS_META, errorMessage } from "@/components/common";
 import { ServiceConfigCard } from "@/pages/settings/ServiceConfigCard";
+import { AiSettingsCard } from "@/pages/settings/AiSettingsCard";
 import { cn } from "@/utils/cn";
 
 /**
- * First-run wizard: WELCOME -> PROFILE -> SERVICES -> AUTOMATIONS -> SYSTEM
- * CHECK -> READY.
+ * First-run wizard: WELCOME -> PROFILE -> AI -> SERVICES -> AUTOMATIONS ->
+ * SYSTEM CHECK -> READY.
  *
  * Every step reports live state rather than a checkbox the user ticks: the
  * profile step reads the backend's completeness rule, the services step reads
@@ -24,11 +26,19 @@ import { cn } from "@/utils/cn";
  * does not reflect the real system.
  */
 
-type StepId = "welcome" | "profile" | "services" | "automations" | "check" | "ready";
+type StepId =
+  | "welcome"
+  | "profile"
+  | "ai"
+  | "services"
+  | "automations"
+  | "check"
+  | "ready";
 
 const STEPS: { id: StepId; title: string }[] = [
   { id: "welcome", title: "Welcome" },
   { id: "profile", title: "Profile" },
+  { id: "ai", title: "AI" },
   { id: "services", title: "Services" },
   { id: "automations", title: "Automations" },
   { id: "check", title: "System check" },
@@ -36,10 +46,10 @@ const STEPS: { id: StepId; title: string }[] = [
 ];
 
 const AUTOMATION_AREAS = [
-  { key: "agenda", label: "Agenda", flow: "Gmail → n8n → Gemini → Calendar / Tasks" },
-  { key: "laboral", label: "Laboral", flow: "Job sources → n8n → Gemini → scoring" },
-  { key: "noticias", label: "Noticias", flow: "RSS / News → n8n → Gemini → digest" },
-  { key: "marca", label: "Marca personal", flow: "Sources → n8n → Gemini → analysis" },
+  { key: "agenda", label: "Agenda", flow: "Gmail → n8n → AI → Calendar / Tasks" },
+  { key: "laboral", label: "Laboral", flow: "Job sources → n8n → AI → scoring" },
+  { key: "noticias", label: "Noticias", flow: "RSS / News → n8n → AI → digest" },
+  { key: "marca", label: "Marca personal", flow: "Sources → n8n → AI → analysis" },
 ];
 
 function StepNav({
@@ -103,6 +113,7 @@ export function SetupPage() {
 
   const completeness = useProfileCompleteness();
   const configs = useServiceConfigs();
+  const aiConfig = useAiConfig();
   const status = useSystemStatus();
   const workflows = useWorkflows();
   const forceCheck = useForceServiceCheck();
@@ -122,12 +133,15 @@ export function SetupPage() {
     () => ({
       welcome: true,
       profile: profileReady,
-      services: (configs.data ?? []).some((c) => c.configured),
+      ai: !!aiConfig.data?.configured,
+      services: (configs.data ?? [])
+        .filter((c) => (c.category ?? "infra") === "infra")
+        .some((c) => c.configured),
       automations: (workflows.data?.data.length ?? 0) > 0,
       check: checkPassed,
       ready: checkPassed,
     }),
-    [profileReady, configs.data, workflows.data, checkPassed],
+    [profileReady, aiConfig.data, configs.data, workflows.data, checkPassed],
   );
 
   const index = STEPS.findIndex((s) => s.id === step);
@@ -146,9 +160,9 @@ export function SetupPage() {
         <Card>
           <CardTitle>Welcome{user?.username ? `, ${user.username}` : ""}</CardTitle>
           <p className="text-sm text-muted">
-            Four things make this platform useful: a profile that says what you care about, the
-            services that do the work (n8n, the scraper, an AI provider), the automations themselves,
-            and a health check that proves it all connects.
+            Four things make this platform useful: a profile that says what you care about, an AI
+            provider and the services that do the work (n8n, the scraper), the automations
+            themselves, and a health check that proves it all connects.
           </p>
           <p className="mt-2 text-sm text-muted">
             You do not need to edit any configuration file. Everything below is stored by the backend
@@ -202,16 +216,29 @@ export function SetupPage() {
         </Card>
       )}
 
+      {step === "ai" && (
+        <div>
+          <p className="mb-3 text-sm text-muted">
+            Pick who answers your automations. NVIDIA NIM is the recommended default; OpenRouter
+            is a good fallback, and Gemini stays available for an existing setup. You only need
+            one — the others can stay empty.
+          </p>
+          <AiSettingsCard canEdit={!!canEdit} />
+        </div>
+      )}
+
       {step === "services" && (
         <div>
           <p className="mb-3 text-sm text-muted">
             Point the platform at your own instances. A service you leave empty reports{" "}
             <em>not configured</em> — that is a normal state, not a failure.
           </p>
-          <div className="grid gap-4 lg:grid-cols-3">
-            {(configs.data ?? []).map((config) => (
-              <ServiceConfigCard key={config.service} config={config} canEdit={!!canEdit} />
-            ))}
+          <div className="grid gap-4 lg:grid-cols-2">
+            {(configs.data ?? [])
+              .filter((config) => (config.category ?? "infra") === "infra")
+              .map((config) => (
+                <ServiceConfigCard key={config.service} config={config} canEdit={!!canEdit} />
+              ))}
           </div>
         </div>
       )}

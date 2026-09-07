@@ -4,6 +4,7 @@ import { n8nStateOf, useHealth, useN8nHealth, useServiceConfigs, useSystemStatus
 import { Badge, Card, CardTitle, PageHeader, Select } from "@/components/ui";
 import { QueryBoundary, ServiceRow } from "@/components/common";
 import { ServiceConfigCard } from "@/pages/settings/ServiceConfigCard";
+import { AiSettingsCard } from "@/pages/settings/AiSettingsCard";
 import { API_URL, APP_ENV, WS_URL } from "@/config";
 import { formatDateTime } from "@/utils/format";
 
@@ -21,12 +22,16 @@ export function SettingsPage() {
     <div>
       <PageHeader title="Settings" description="Preferences and connections. No secret is ever shown here." />
 
+      <div className="mb-4">
+        <AiSettingsCard canEdit={!!canEdit} />
+      </div>
+
       <Card className="mb-4">
         <CardTitle>Services</CardTitle>
         <p className="mb-3 text-xs text-muted">
-          Point the platform at your own n8n, scraper and AI provider. Saved here, these values take
-          precedence over the server environment and apply on the next health check — no redeploy,
-          no <code>.env</code> editing.
+          Point the platform at your own n8n and scraper. Saved here, these values take precedence
+          over the server environment and apply on the next health check — no redeploy, no{" "}
+          <code>.env</code> editing. AI providers live in their own section above.
         </p>
         <QueryBoundary
           isLoading={serviceConfigs.isLoading}
@@ -35,10 +40,15 @@ export function SettingsPage() {
           onRetry={() => serviceConfigs.refetch()}
           skeletonRows={3}
         >
-          <div className="grid gap-4 lg:grid-cols-3">
-            {(serviceConfigs.data ?? []).map((config) => (
-              <ServiceConfigCard key={config.service} config={config} canEdit={!!canEdit} />
-            ))}
+          <div className="grid gap-4 lg:grid-cols-2">
+            {(serviceConfigs.data ?? [])
+              // AI providers and the internal settings row are owned by the
+              // Artificial Intelligence card above; showing them again as
+              // generic URL + key cards would be two ways to edit one thing.
+              .filter((config) => (config.category ?? "infra") === "infra")
+              .map((config) => (
+                <ServiceConfigCard key={config.service} config={config} canEdit={!!canEdit} />
+              ))}
           </div>
         </QueryBoundary>
       </Card>

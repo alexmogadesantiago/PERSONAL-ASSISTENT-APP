@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  aiApi,
   credentialsApi,
   n8nApi,
   profilesApi,
@@ -8,7 +9,7 @@ import {
   type CredentialInput,
   type ProfileInput,
 } from "@/api";
-import type { N8nHealth, ServiceConfigUpdate } from "@/api/types";
+import type { AiConfigUpdate, AiProviderId, N8nHealth, ServiceConfigUpdate } from "@/api/types";
 
 export const qk = {
   health: ["health"] as const,
@@ -21,6 +22,10 @@ export const qk = {
   profileCompleteness: ["profiles", "completeness"] as const,
   profileCatalog: ["profiles", "catalog"] as const,
   serviceConfigs: ["services", "config"] as const,
+  aiConfig: ["ai", "config"] as const,
+  aiProviders: ["ai", "providers"] as const,
+  aiModels: (provider: string) => ["ai", "models", provider] as const,
+  aiHealth: ["ai", "health"] as const,
   credentials: ["credentials"] as const,
   credentialStore: ["credentials", "store-status"] as const,
   n8nHealth: ["n8n", "health"] as const,
@@ -104,6 +109,62 @@ export function useServiceConfigMutations() {
       mutationFn: (service: string) => servicesApi.test(service),
       onSuccess: invalidate,
     }),
+  };
+}
+
+/* ------------------------ artificial intelligence --------------------- */
+
+export function useAiConfig() {
+  return useQuery({ queryKey: qk.aiConfig, queryFn: aiApi.config, staleTime: 10_000 });
+}
+
+export function useAiProviders() {
+  return useQuery({ queryKey: qk.aiProviders, queryFn: async () => (await aiApi.providers()).data });
+}
+
+/**
+ * Models for one provider. The backend asks the provider itself and falls back
+ * to a maintained catalogue, flagging which it returned - so the selector never
+ * presents a stale guess as live data.
+ */
+export function useAiModels(provider: AiProviderId | "" | undefined) {
+  return useQuery({
+    queryKey: qk.aiModels(provider ?? ""),
+    queryFn: () => aiApi.models(provider as AiProviderId),
+    enabled: !!provider,
+    staleTime: 5 * 60_000,
+    retry: 0,
+  });
+}
+
+export function useAiHealth(enabled = true) {
+  return useQuery({
+    queryKey: qk.aiHealth,
+    queryFn: () => aiApi.health(),
+    enabled,
+    refetchInterval: 60_000,
+    retry: 0,
+  });
+}
+
+export function useAiMutations() {
+  const qc = useQueryClient();
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: qk.aiConfig });
+    qc.invalidateQueries({ queryKey: qk.aiProviders });
+    qc.invalidateQueries({ queryKey: qk.aiHealth });
+    // the AI tile on /monitoring is computed from the same configuration
+    qc.invalidateQueries({ queryKey: qk.systemStatus });
+    qc.invalidateQueries({ queryKey: qk.serviceConfigs });
+  };
+  return {
+    save: useMutation({ mutationFn: (input: AiConfigUpdate) => aiApi.update(input), onSuccess: invalidate }),
+    test: useMutation({
+      mutationFn: (input: { provider?: AiProviderId; model?: string } = {}) => aiApi.test(input),
+      onSuccess: invalidate,
+    }),
+    rotateToken: useMutation({ mutationFn: () => aiApi.serviceToken.rotate(), onSuccess: invalidate }),
+    revokeToken: useMutation({ mutationFn: () => aiApi.serviceToken.revoke(), onSuccess: invalidate }),
   };
 }
 

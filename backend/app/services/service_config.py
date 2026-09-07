@@ -52,6 +52,10 @@ class ServiceSpec:
     #: default URL used when the caller supplies none (e.g. the Google API host)
     default_url: str = ""
     health_path: str = "/health"
+    #: "infra" services get a generic card in Settings; "ai" ones are driven by
+    #: the dedicated Artificial Intelligence panel, and "internal" ones hold
+    #: platform state a user never edits as a URL + key pair.
+    category: str = "infra"
 
 
 SPECS: dict[str, ServiceSpec] = {
@@ -75,19 +79,64 @@ SPECS: dict[str, ServiceSpec] = {
         env_url_name="AC_PLAYWRIGHT_BASE_URL",
         health_path="/health",
     ),
+    # --- AI providers. One row each, holding only that provider's credential
+    # and endpoint. Which of them is actually used is a separate decision,
+    # stored on the "ai" row below and resolved by `services.ai.config`.
+    "nvidia_nim": ServiceSpec(
+        key="nvidia_nim",
+        label="NVIDIA NIM",
+        needs_url=False,
+        needs_secret=True,
+        settings_url_attr="nvidia_nim_base_url",
+        settings_secret_attr="nvidia_nim_api_key",
+        env_url_name="AC_NVIDIA_NIM_BASE_URL",
+        env_secret_name="AC_NVIDIA_NIM_API_KEY",
+        default_url="https://integrate.api.nvidia.com/v1",
+        category="ai",
+    ),
+    "openrouter": ServiceSpec(
+        key="openrouter",
+        label="OpenRouter",
+        needs_url=False,
+        needs_secret=True,
+        settings_url_attr="openrouter_base_url",
+        settings_secret_attr="openrouter_api_key",
+        env_url_name="AC_OPENROUTER_BASE_URL",
+        env_secret_name="AC_OPENROUTER_API_KEY",
+        default_url="https://openrouter.ai/api/v1",
+        category="ai",
+    ),
     "gemini": ServiceSpec(
         key="gemini",
         label="Gemini",
         needs_url=False,
         needs_secret=True,
+        settings_url_attr="gemini_base_url",
         settings_secret_attr="gemini_api_key",
+        env_url_name="AC_GEMINI_BASE_URL",
         env_secret_name="AC_GEMINI_API_KEY",
         default_url="https://generativelanguage.googleapis.com",
+        category="ai",
+    ),
+    # Not a service to reach: this row carries the AI *selection* (provider,
+    # model, fallback) in `meta` and the automation service token in
+    # `encrypted_secret`. It never appears as a card or a monitor tile.
+    "ai": ServiceSpec(
+        key="ai",
+        label="Artificial Intelligence",
+        needs_url=False,
+        needs_secret=False,
+        category="internal",
     ),
 }
 
 #: services a user may configure from the panel
 CONFIGURABLE = tuple(SPECS)
+
+#: services rendered as a generic URL + key card in Settings
+INFRA_SERVICES = tuple(k for k, s in SPECS.items() if s.category == "infra")
+#: services owned by the Artificial Intelligence panel
+AI_SERVICES = tuple(k for k, s in SPECS.items() if s.category == "ai")
 
 
 @dataclass
@@ -208,6 +257,7 @@ def public_view(r: Resolved) -> dict:
     return {
         "service": r.service,
         "label": r.spec.label,
+        "category": r.spec.category,
         "configured": r.configured,
         "enabled": r.enabled,
         "source": r.source,
@@ -320,8 +370,10 @@ def has_any_configuration(db: Session | None) -> bool:
 
 
 __all__ = [
+    "AI_SERVICES",
     "CONFIGURABLE",
     "DATABASE",
+    "INFRA_SERVICES",
     "ENVIRONMENT",
     "NONE",
     "Resolved",

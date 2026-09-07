@@ -31,7 +31,7 @@ export interface HealthResponse {
 /**
  * `online`         reachable and answering (HTTP / TCP services)
  * `configured`     set up and verified, but not something you can ping
- *                  (profile data in Postgres, an accepted Gemini key)
+ *                  (profile data in Postgres)
  * `degraded`       reachable but only partly usable (n8n up, API key rejected)
  * `invalid`        configured with credentials the provider refuses
  * `offline`        configured, but not responding
@@ -182,6 +182,8 @@ export type ConfigSource = "database" | "environment" | "none";
 export interface ServiceConfig {
   service: string;
   label: string;
+  /** `infra` gets a generic card in Settings; `ai` is owned by the AI panel. */
+  category?: "infra" | "ai" | "internal";
   configured: boolean;
   enabled: boolean;
   source: ConfigSource;
@@ -271,4 +273,130 @@ export interface ProfileCatalog {
   sections: CatalogSection[];
   /** The sections the backend actually grades, so progress is not invented. */
   required_sections: string[];
+}
+
+/* ------------------------- artificial intelligence ----------------------- */
+
+/** The providers the platform can talk to, in preference order. */
+export type AiProviderId = "nvidia_nim" | "openrouter" | "gemini";
+
+/** One provider in the picker. Never carries the key, only a hint. */
+export interface AiProviderInfo {
+  id: AiProviderId;
+  label: string;
+  tagline: string;
+  recommended: boolean;
+  api_style: string;
+  default_base_url: string;
+  default_model: string;
+  key_help: string;
+  console_url: string;
+  service_key: string;
+  configured: boolean;
+  secret_configured: boolean;
+  secret_hint: string;
+  base_url: string;
+  model: string;
+  source: ConfigSource;
+}
+
+export interface AiProviderConfig {
+  provider: AiProviderId;
+  label: string;
+  configured: boolean;
+  enabled: boolean;
+  source: ConfigSource;
+  base_url: string;
+  model: string;
+  secret_configured: boolean;
+  secret_hint: string;
+}
+
+export interface AiServiceTokenStatus {
+  configured: boolean;
+  source: ConfigSource;
+  hint: string;
+}
+
+export interface AiConfig {
+  provider: AiProviderId | "";
+  model: string;
+  fallback_enabled: boolean;
+  fallback_provider: AiProviderId | "";
+  fallback_model: string;
+  /** The fallback that would actually be used (configured, and not the primary). */
+  effective_fallback_provider: AiProviderId | "";
+  temperature: number;
+  max_tokens: number;
+  timeout_seconds: number;
+  source: "database" | "environment" | "default";
+  configured: boolean;
+  missing: string[];
+  providers: AiProviderConfig[];
+  service_token: AiServiceTokenStatus;
+}
+
+export interface AiCredentialUpdate {
+  provider: AiProviderId;
+  /** Omit to keep the stored key; use `clear_api_key` to remove it. */
+  api_key?: string;
+  base_url?: string;
+  model?: string;
+  clear_api_key?: boolean;
+  enabled?: boolean;
+}
+
+export interface AiConfigUpdate {
+  provider?: AiProviderId;
+  model?: string;
+  fallback_enabled?: boolean;
+  fallback_provider?: AiProviderId | "";
+  fallback_model?: string;
+  temperature?: number;
+  max_tokens?: number;
+  timeout_seconds?: number;
+  credentials?: AiCredentialUpdate[];
+}
+
+export interface AiModel {
+  id: string;
+  label: string;
+  /** `live` came from the provider; `catalog` is our maintained fallback list. */
+  source: "live" | "catalog";
+}
+
+export interface AiModelList {
+  provider: AiProviderId;
+  live: boolean;
+  detail: string;
+  data: AiModel[];
+}
+
+export interface AiTestResult {
+  ok: boolean;
+  provider: string;
+  model: string;
+  status: string;
+  detail: string;
+  latency_ms: number | null;
+}
+
+export interface AiHealth {
+  status: "online" | "degraded" | "invalid" | "offline" | "not_configured" | "unknown";
+  detail: string;
+  provider: string;
+  model: string;
+  latency_ms: number | null;
+  fallback_provider: string;
+  fallback_status: string;
+  error: string;
+  cached: boolean;
+  checked_at: string;
+}
+
+/** The only response that ever carries the token itself - shown once. */
+export interface AiServiceTokenCreated {
+  token: string;
+  hint: string;
+  note: string;
 }

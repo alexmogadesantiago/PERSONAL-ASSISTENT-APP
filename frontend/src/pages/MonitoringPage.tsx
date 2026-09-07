@@ -22,14 +22,14 @@ const SERVICE_LABEL: Record<string, string> = {
   n8n: "n8n",
   playwright: "Playwright",
   profile: "Profile",
-  gemini: "Gemini",
+  ai: "AI",
 };
 
 /** Where a user goes to fix each service. */
 const FIX_LINK: Record<string, { to: string; label: string }> = {
   n8n: { to: "/settings", label: "Configure" },
   playwright: { to: "/settings", label: "Configure" },
-  gemini: { to: "/settings", label: "Configure" },
+  ai: { to: "/settings", label: "Configure" },
   profile: { to: "/profiles", label: "Complete profile" },
 };
 
@@ -40,6 +40,23 @@ interface Row {
   latency_ms: number | null;
   detail: string;
   updatedAt: string;
+  meta?: Record<string, unknown>;
+}
+
+/**
+ * The second line under a service name. Only the AI row has one today: which
+ * provider and model are actually answering, and - when the primary is down -
+ * which fallback is carrying the load.
+ */
+function subLabel(row: Row): string {
+  const meta = row.meta ?? {};
+  if (row.name !== "ai") return "";
+  const provider = String(meta.provider_label ?? meta.provider ?? "");
+  if (!provider) return "";
+  const model = String(meta.model ?? "");
+  const fallback = String(meta.fallback_label ?? meta.fallback_provider ?? "");
+  const head = model ? `${provider} · ${model}` : provider;
+  return row.status === "degraded" && fallback ? `${head} → serving from ${fallback}` : head;
 }
 
 function ServiceTable({ rows }: { rows: Row[] }) {
@@ -66,9 +83,14 @@ function ServiceTable({ rows }: { rows: Row[] }) {
                 <td className="py-2.5 pr-3">
                   <div className="flex items-center gap-2.5">
                     <StatusDot online={meta.dot} />
-                    <span className="font-medium text-fg">
-                      {SERVICE_LABEL[row.name] ?? row.name}
-                    </span>
+                    <div>
+                      <span className="font-medium text-fg">
+                        {SERVICE_LABEL[row.name] ?? row.name}
+                      </span>
+                      {subLabel(row) && (
+                        <span className="block text-xs text-muted">{subLabel(row)}</span>
+                      )}
+                    </div>
                   </div>
                 </td>
                 <td className="py-2.5 pr-3">
@@ -125,6 +147,7 @@ export function MonitoringPage() {
         latency_ms: s.latency_ms,
         detail: s.detail,
         updatedAt: s.updatedAt,
+        meta: s.meta,
       }));
     }
     const snapshot = fallbackStatus.data;
@@ -136,6 +159,7 @@ export function MonitoringPage() {
         latency_ms: s.latency_ms,
         detail: s.detail,
         updatedAt: s.checked_at ?? snapshot?.checked_at ?? "",
+        meta: s.meta,
       }))
       .sort((a, b) => serviceRank(a.name) - serviceRank(b.name));
   }, [monitor.services, fallbackStatus.data]);

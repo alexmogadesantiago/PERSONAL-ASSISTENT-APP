@@ -1,10 +1,16 @@
 """Service configuration API (Phase 2 / Phase 6).
 
-Lets an admin point the platform at a real n8n, Playwright or Gemini from the
-web panel instead of editing `.env` and redeploying. Reading is open to any
-authenticated user (the dashboard shows configuration state); writing and
-testing are admin-only, because both change what the backend connects to and
-make it originate outbound requests.
+Lets an admin point the platform at a real n8n or Playwright from the web panel
+instead of editing `.env` and redeploying. Reading is open to any authenticated
+user (the dashboard shows configuration state); writing and testing are
+admin-only, because both change what the backend connects to and make it
+originate outbound requests.
+
+AI providers are also stored here (one row each), but they are driven by the
+dedicated `/api/ai` endpoints rather than by this generic URL + key surface -
+picking a provider and a model is a different decision from pointing at a
+sidecar. They are still listed by `GET /config`, tagged `category: "ai"`, so
+the panel can group them.
 
 No response from this module ever contains a secret - only `secret_hint`.
 """
