@@ -40,6 +40,27 @@ Copy `.env.example` → `.env.local` for local dev.
 `VITE_WS_URL` is unset. `localhost` / `127.0.0.1` are only ever defaults for
 local dev — production must set real URLs.
 
+Those three are the **only** variables this app needs. AI provider
+credentials (NVIDIA NIM, OpenRouter, Gemini) must never appear here or in the
+Vercel project: Vite inlines `VITE_*` into the shipped bundle, so a key set
+there is published. They live in the backend's `service_configs` table,
+written from *Settings → Artificial Intelligence*, and only FastAPI ever
+sends them anywhere:
+
+```
+Browser → Vercel frontend → FastAPI → AIService → NVIDIA NIM (primary)
+                                                → OpenRouter (fallback)
+                                                → Gemini (optional)
+```
+
+`src/security.test.ts` fails the build if a credential-shaped value, a
+credential-shaped `VITE_*` name, or a direct call to a provider host gets
+into the source or into `dist/`.
+
+The backend must allow this origin: set `AC_CORS_ORIGINS` to the Vercel URL
+(and `AC_CORS_ORIGIN_REGEX` for preview deployments). The API sends
+credentials, so `*` is rejected by the backend's own configuration check.
+
 ## Commands
 
 ```bash

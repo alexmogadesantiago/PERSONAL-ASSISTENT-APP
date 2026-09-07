@@ -366,3 +366,122 @@ describe("SettingsPage service configuration", () => {
     expect(JSON.parse(String(put.init?.body))).toEqual({ base_url: "https://old.example.com" });
   });
 });
+
+/**
+ * The AI card reads `/api/ai/health`, which knows two things the generic
+ * service row cannot: whether the fallback is itself usable, and which
+ * generation last really fell back.
+ */
+const AI_PROVIDERS = [
+  { id: "nvidia_nim", label: "NVIDIA NIM", secret_configured: true },
+  { id: "openrouter", label: "OpenRouter", secret_configured: true },
+  { id: "gemini", label: "Gemini", secret_configured: false },
+];
+
+const aiHealth = (over: Record<string, unknown> = {}) => ({
+  status: "online",
+  detail: "credential accepted",
+  provider: "nvidia_nim",
+  model: "nvidia/nemotron-3-super-120b-a12b",
+  latency_ms: 470,
+  fallback_provider: "openrouter",
+  fallback_status: "online",
+  error: "",
+  cached: false,
+  checked_at: new Date().toISOString(),
+  last_fallback: null,
+  ...over,
+});
+
+function monitorStub(health: Record<string, unknown>) {
+  return installFetchStub({
+    "GET /api/system/status": { body: statusBody([]) },
+    "GET /api/system/metrics": { body: metrics },
+    "GET /api/auth/me": { body: sampleUser },
+    "GET /api/ai/health": { body: health },
+    "GET /api/ai/providers": { body: { data: AI_PROVIDERS } },
+  });
+}
+
+describe("MonitoringPage — AI provider card", () => {
+  it("names the provider, the model, the status and the latency", async () => {
+    monitorStub(aiHealth());
+    renderWithProviders(<MonitoringPage />);
+
+    expect(await screen.findByText("AI provider")).toBeInTheDocument();
+    expect(screen.getByTestId("ai-health-status")).toHaveTextContent("online");
+    // the label comes from the backend's registry, not from a list in React
+    expect(screen.getByText("NVIDIA NIM")).toBeInTheDocument();
+    expect(screen.getByText("nvidia/nemotron-3-super-120b-a12b")).toBeInTheDocument();
+    expect(screen.getByText("470 ms")).toBeInTheDocument();
+    // the fallback is named as a fallback, not as a second live provider
+    expect(screen.getByText(/Fallback:/)).toHaveTextContent("OpenRouter");
+    expect(screen.getByText(/Used only when the primary itself fails/)).toBeInTheDocument();
+  });
+
+  it("reports OFFLINE with the provider's error instead of a green light", async () => {
+    monitorStub(
+      aiHealth({
+        status: "offline",
+        detail: "the provider did not answer",
+        error: "connection timed out after 60s",
+        latency_ms: null,
+      }),
+    );
+    renderWithProviders(<MonitoringPage />);
+
+    expect(await screen.findByTestId("ai-health-status")).toHaveTextContent("offline");
+    expect(screen.getByText("connection timed out after 60s")).toBeInTheDocument();
+  });
+
+  it("says NOT CONFIGURED when no provider is set up, and that is not an outage", async () => {
+    monitorStub(
+      aiHealth({
+        status: "not_configured",
+        detail: "no AI provider is configured",
+        provider: "",
+        model: "",
+        latency_ms: null,
+        fallback_provider: "",
+        fallback_status: "",
+      }),
+    );
+    renderWithProviders(<MonitoringPage />);
+
+    expect(await screen.findByTestId("ai-health-status")).toHaveTextContent("not configured");
+    expect(screen.getByText(/No fallback available/)).toBeInTheDocument();
+  });
+
+  it("shows the last generation that really fell back, with its reason", async () => {
+    monitorStub(
+      aiHealth({
+        last_fallback: {
+          at: new Date(Date.now() - 4 * 60_000).toISOString(),
+          age_seconds: 240,
+          primary: "nvidia_nim",
+          fallback: "openrouter",
+          reason: "rate limit or quota exceeded (HTTP 429)",
+        },
+      }),
+    );
+    renderWithProviders(<MonitoringPage />);
+
+    const notice = await screen.findByText(/Last fallback/);
+    expect(notice).toHaveTextContent("NVIDIA NIM");
+    expect(notice).toHaveTextContent("OpenRouter");
+    expect(notice).toHaveTextContent("HTTP 429");
+  });
+
+  it("keeps the page working when the backend has no AI health endpoint", async () => {
+    installFetchStub({
+      "GET /api/system/status": { body: statusBody(MIXED) },
+      "GET /api/system/metrics": { body: metrics },
+      "GET /api/auth/me": { body: sampleUser },
+      "GET /api/ai/health": { status: 404, body: { detail: "not found" } },
+    });
+    renderWithProviders(<MonitoringPage />);
+
+    expect(await screen.findByText("PostgreSQL")).toBeInTheDocument();
+    expect(screen.queryByText("AI provider")).not.toBeInTheDocument();
+  });
+});

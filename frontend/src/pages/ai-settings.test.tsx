@@ -420,3 +420,143 @@ describe("AI card query wiring", () => {
 
 // keep vi referenced for the shared setup helpers
 void vi;
+
+/**
+ * Which provider answers is a real choice, not a label: each of the three can
+ * be made primary, and the fallback is chosen independently of it. These pin
+ * the payload actually sent to `PUT /api/ai/config`, because that request is
+ * the whole contract between this panel and the backend's AIService.
+ */
+describe("AiSettingsCard — choosing who answers", () => {
+  const sentPut = async (calls: { init?: RequestInit }[]) => {
+    const put = await waitFor(() => {
+      const c = calls.find((x) => x.init?.method === "PUT");
+      expect(c).toBeTruthy();
+      return c!;
+    });
+    return JSON.parse(String(put.init?.body));
+  };
+
+  it("makes NVIDIA NIM primary with the model the provider reports", async () => {
+    const { calls } = stub({
+      "GET /api/ai/config": { body: config({ provider: "openrouter", configured: true }) },
+      "PUT /api/ai/config": { body: config({ provider: "nvidia_nim", configured: true }) },
+    });
+    renderWithProviders(<AiSettingsCard canEdit />);
+
+    const group = within(await screen.findByRole("radiogroup", { name: /ai provider/i }));
+    await userEvent.click(group.getByText("NVIDIA NIM"));
+    await userEvent.click(screen.getByRole("button", { name: /save ai settings/i }));
+
+    const sent = await sentPut(calls);
+    expect(sent.provider).toBe("nvidia_nim");
+    expect(sent.model).toBe("meta/llama-3.3-70b-instruct");
+  });
+
+  it("makes OpenRouter primary — it is a provider, not only a fallback", async () => {
+    const { calls } = stub({
+      "PUT /api/ai/config": { body: config({ provider: "openrouter", configured: true }) },
+    });
+    renderWithProviders(<AiSettingsCard canEdit />);
+
+    const group = within(await screen.findByRole("radiogroup", { name: /ai provider/i }));
+    await userEvent.click(group.getByText("OpenRouter"));
+    await userEvent.click(screen.getByRole("button", { name: /save ai settings/i }));
+
+    const sent = await sentPut(calls);
+    expect(sent.provider).toBe("openrouter");
+    expect(sent.model).toBe("meta-llama/llama-3.3-70b-instruct");
+  });
+
+  it("keeps Gemini selectable for an existing setup", async () => {
+    const { calls } = stub({
+      "PUT /api/ai/config": { body: config({ provider: "gemini", configured: true }) },
+    });
+    renderWithProviders(<AiSettingsCard canEdit />);
+
+    const group = within(await screen.findByRole("radiogroup", { name: /ai provider/i }));
+    await userEvent.click(group.getByText("Gemini"));
+    await userEvent.click(screen.getByRole("button", { name: /save ai settings/i }));
+
+    const sent = await sentPut(calls);
+    expect(sent.provider).toBe("gemini");
+    expect(sent.model).toBe("gemini-2.5-flash");
+  });
+
+  it("saves an explicit fallback provider and fallback model", async () => {
+    const { calls } = stub({
+      "GET /api/ai/config": { body: config({ provider: "nvidia_nim", configured: true }) },
+      "PUT /api/ai/config": { body: config({ provider: "nvidia_nim", configured: true }) },
+    });
+    renderWithProviders(<AiSettingsCard canEdit />);
+
+    await screen.findByRole("radiogroup", { name: /ai provider/i });
+    await userEvent.selectOptions(screen.getByLabelText(/fallback provider/i), "openrouter");
+    await userEvent.type(
+      await screen.findByLabelText("Fallback model — custom id"),
+      "meta-llama/llama-3.3-70b-instruct",
+    );
+    await userEvent.click(screen.getByRole("button", { name: /save ai settings/i }));
+
+    const sent = await sentPut(calls);
+    expect(sent.fallback_enabled).toBe(true);
+    expect(sent.fallback_provider).toBe("openrouter");
+    expect(sent.fallback_model).toBe("meta-llama/llama-3.3-70b-instruct");
+    // the fallback must never displace the primary
+    expect(sent.provider).toBe("nvidia_nim");
+  });
+
+  it("turning the fallback off sends no fallback provider at all", async () => {
+    const { calls } = stub({
+      "GET /api/ai/config": {
+        body: config({
+          provider: "nvidia_nim",
+          configured: true,
+          fallback_enabled: true,
+          fallback_provider: "openrouter",
+          fallback_model: "meta-llama/llama-3.3-70b-instruct",
+          effective_fallback_provider: "openrouter",
+        }),
+      },
+      "PUT /api/ai/config": { body: config({ provider: "nvidia_nim", configured: true }) },
+    });
+    renderWithProviders(<AiSettingsCard canEdit />);
+
+    await userEvent.click(await screen.findByLabelText(/enable fallback/i));
+    await userEvent.click(screen.getByRole("button", { name: /save ai settings/i }));
+
+    const sent = await sentPut(calls);
+    expect(sent.fallback_enabled).toBe(false);
+    expect(sent.fallback_provider).toBe("");
+    expect(sent.fallback_model).toBe("");
+  });
+
+  it("shows each provider's key state without ever showing a key", async () => {
+    stub({
+      "GET /api/ai/providers": {
+        body: {
+          data: [
+            provider({ secret_configured: true, secret_hint: "...a3f9", configured: true }),
+            provider({ id: "openrouter", label: "OpenRouter", recommended: false }),
+            provider({
+              id: "gemini",
+              label: "Gemini",
+              recommended: false,
+              secret_configured: true,
+              secret_hint: "...c410",
+              configured: true,
+            }),
+          ],
+        },
+      },
+    });
+    renderWithProviders(<AiSettingsCard canEdit />);
+
+    const group = within(await screen.findByRole("radiogroup", { name: /ai provider/i }));
+    expect(group.getByText("Key stored (...a3f9)")).toBeInTheDocument();
+    expect(group.getByText("Key stored (...c410)")).toBeInTheDocument();
+    expect(group.getByText("No key yet")).toBeInTheDocument();
+    // the hint is four characters, never the credential
+    expect(document.body.textContent).not.toMatch(/nvapi-|sk-or-v1|AIzaSy/);
+  });
+});

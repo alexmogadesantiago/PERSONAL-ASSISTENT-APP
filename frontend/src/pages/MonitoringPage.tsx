@@ -4,6 +4,7 @@ import { serviceRank, useMonitorWebSocket } from "@/hooks/useMonitorWebSocket";
 import { useForceServiceCheck, useSystemStatus } from "@/hooks/queries";
 import { Badge, Button, Card, CardTitle, PageHeader, Sparkline, StatusDot } from "@/components/ui";
 import { STATUS_META, StatCard, errorMessage } from "@/components/common";
+import { AiStatusCard } from "@/pages/monitoring/AiStatusCard";
 import { formatUptime, pct, relativeTime } from "@/utils/format";
 import { cn } from "@/utils/cn";
 import type { ServiceStatus } from "@/api/types";
@@ -259,6 +260,8 @@ export function MonitoringPage() {
           <Sparkline values={disk} label="Disk" unit="%" />
         </Card>
       </div>
+
+      <AiStatusCard />
 
       <Card className="mt-4">
         <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
