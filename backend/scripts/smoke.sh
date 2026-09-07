@@ -44,6 +44,31 @@ echo "  secret not exposed: ok"
 echo "== n8n health (key optional) =="
 curl -fsS "$BACKEND/api/n8n/health" -H "Authorization: Bearer $ACCESS" | tee /dev/stderr | grep -q '"reachable":true'
 
+echo "== ai layer =="
+# Deploy-drift canary: a mounted endpoint refuses an anonymous caller (401);
+# an image built before the AI layer answers 404. That single digit is the
+# difference between "sign in" and "this backend has no AI API".
+ANON=$(curl -s -o /dev/null -w '%{http_code}' "$BACKEND/api/ai/providers")
+if [ "$ANON" = "404" ]; then
+  echo "  FAIL: /api/ai/providers is not served by this build (stale deployment?)"
+  exit 1
+fi
+[ "$ANON" = "401" ] && echo "  anonymous call refused, not missing: ok"
+
+PROVIDERS=$(curl -fsS "$BACKEND/api/ai/providers" -H "Authorization: Bearer $ACCESS")
+for P in nvidia_nim openrouter gemini; do
+  printf '%s' "$PROVIDERS" | grep -q "\"id\":\"$P\"" || { echo "  MISSING provider: $P"; exit 1; }
+done
+echo "  providers: nvidia_nim, openrouter, gemini: ok"
+printf '%s' "$PROVIDERS" | grep -q '"api_key"' && { echo "LEAK: api_key in the provider catalogue"; exit 1; }
+# Key SHAPES, not prefixes: `key_help` legitimately reads "... (nvapi-...)",
+# and flagging that would cry wolf on help text.
+printf '%s' "$PROVIDERS" | grep -qE 'nvapi-[A-Za-z0-9_-]{8,}|sk-or-v1-[A-Za-z0-9]{8,}|AIzaSy[A-Za-z0-9_-]{10,}'   && { echo "LEAK: a provider key in the response"; exit 1; }
+echo "  no credential in the catalogue: ok"
+
+curl -fsS "$BACKEND/api/ai/config" -H "Authorization: Bearer $ACCESS" | grep -q '"fallback_enabled"'   && echo "  config carries the fallback settings: ok"
+curl -fsS "$BACKEND/api/ai/health" -H "Authorization: Bearer $ACCESS" | tee /dev/stderr | grep -q '"status"'   && echo "  health answers: ok"
+
 echo "== websocket /ws/monitor =="
 python3 - "$BACKEND" "$ACCESS" <<'PY'
 import sys, json, asyncio
