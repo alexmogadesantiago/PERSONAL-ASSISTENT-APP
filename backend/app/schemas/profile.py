@@ -104,3 +104,16 @@ class ProfileCatalogOut(BaseModel):
     #: the sections completeness actually grades, so the UI shows the backend's
     #: progress rule rather than inventing its own
     required_sections: list[str]
+
+
+class ProfileRuntimeOut(BaseModel):
+    """The profile as an automation consumes it.
+
+    `profile` is the derived runtime shape (see `services.profile_runtime`); it
+    carries no credential and no personal identifier beyond what the user chose.
+    """
+
+    profile_id: str
+    name: str
+    updated_at: str
+    profile: dict

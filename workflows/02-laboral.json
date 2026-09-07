@@ -36,7 +36,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Lee config/user_profile.json + modules.json y resuelve:\n//   - keywords     -> frases de búsqueda para el scraper\n//   - include_terms -> palabras para FILTRAR y PUNTUAR ofertas (derivadas\n//                      de sector_interes.industrias + formacion.keywords_linkedin)\n//   - location, idioma, perfil_texto\nconst fs = require('fs');\nconst DIR = '/files/config';\nlet user = { selections: {}, ubicacion_laboral: '' };\nlet modules = {};\ntry { user = JSON.parse(fs.readFileSync(DIR + '/user_profile.json', 'utf8')); } catch (e) {}\ntry { modules = JSON.parse(fs.readFileSync(DIR + '/modules.json', 'utf8')); } catch (e) {}\n\nconst pick = (dim) => Array.isArray(user.selections && user.selections[dim]) ? user.selections[dim] : [];\nconst find = (list, id) => (list || []).find((o) => o && o.id === id);\nconst noAcc = (s) => String(s).toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g, '');\n\nconst idiomaId = pick('idioma')[0] || 'espanol';\nconst idioma = (find(modules.idioma, idiomaId) && find(modules.idioma, idiomaId).valores.codigo) || 'es';\n\nconst kwFormacion = pick('formacion').flatMap((id) => {\n  const m = find(modules.formacion, id);\n  return (m && m.valores && m.valores.keywords_linkedin) || [];\n});\nconst kwSector = pick('sector_interes').flatMap((id) => {\n  const m = find(modules.sector_interes, id);\n  return (m && m.valores && m.valores.industrias) || [];\n});\n\nconst keywords = [...new Set([...kwFormacion, ...kwSector])].slice(0, 8).join(',');\n\nconst include_terms = [...new Set(\n  [...kwFormacion, ...kwSector]\n    .flatMap((t) => { const n = noAcc(t); return [n, ...n.split(/[^a-z0-9]+/)]; })\n    .filter((w) => w.length > 2)\n)];\n\nconst formacionNombre = (find(modules.formacion, pick('formacion')[0]) || {}).nombre || 'ingeniería';\nconst objetivoNombre = (find(modules.objetivo_profesional, pick('objetivo_profesional')[0]) || {}).nombre || 'primer empleo';\nconst sectoresNombre = pick('sector_interes')\n  .map((id) => (find(modules.sector_interes, id) || {}).nombre).filter(Boolean).join(', ');\nconst location = user.ubicacion_laboral || 'Barcelona';\n\nreturn [{ json: { profile: {\n  idioma,\n  keywords: keywords || 'Engineer,Analyst,Operations',\n  include_terms,\n  location,\n  sectores: sectoresNombre || '—',\n  perfil_texto: 'Profesional de ' + formacionNombre + ' con objetivo: ' + objetivoNombre\n    + (sectoresNombre ? '. Sectores de interés: ' + sectoresNombre : '') + '. Ubicación: ' + location + '.',\n} } }];\n"
+        "jsCode": "// Perfil desde PostgreSQL via /api/profiles/runtime. El backend ya resuelve\n// keywords, include_terms, ubicacion e idioma desde el catalogo del\n// personalizador, asi que aqui solo se pasa el contrato adelante.\nconst p = $('Perfil (API)').first().json.profile || {};\nreturn [{ json: { profile: {\n  idioma: p.idioma || 'es',\n  keywords: p.keywords || 'Engineer,Analyst,Operations',\n  include_terms: Array.isArray(p.include_terms) ? p.include_terms : [],\n  location: p.location || '',\n  perfil_texto: p.perfil_texto || '',\n} } }];\n"
       },
       "id": "cargar-perfil",
       "name": "Cargar perfil",
@@ -274,6 +274,29 @@
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "url": "={{ (($env.AC_API_URL || '').match(/^https?:\\/\\//) ? ($env.AC_API_URL || '') : 'https://' + ($env.AC_API_URL || '')).replace(/\\/+$/, '') }}/api/profiles/runtime?profile_id={{ $env.AC_PROFILE_ID }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-AC-Service-Token",
+              "value": "={{ $env.AC_SERVICE_TOKEN }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "perfil-api-node",
+      "name": "Perfil (API)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -1300,
+        220
+      ]
     }
   ],
   "connections": {
@@ -281,7 +304,7 @@
       "main": [
         [
           {
-            "node": "Cargar perfil",
+            "node": "Perfil (API)",
             "type": "main",
             "index": 0
           }
@@ -292,7 +315,7 @@
       "main": [
         [
           {
-            "node": "Cargar perfil",
+            "node": "Perfil (API)",
             "type": "main",
             "index": 0
           }
@@ -421,6 +444,17 @@
         [
           {
             "node": "Fusionar oferta + resumen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Perfil (API)": {
+      "main": [
+        [
+          {
+            "node": "Cargar perfil",
             "type": "main",
             "index": 0
           }

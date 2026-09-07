@@ -1,12 +1,13 @@
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
 from app.db import get_db
-from app.models import User
+from app.models import Profile, User
 from app.schemas.profile import (
     ProfileCatalogOut,
     ProfileCompletenessOut,
@@ -14,12 +15,21 @@ from app.schemas.profile import (
     ProfileDimensionsOut,
     ProfileDuplicate,
     ProfileOut,
+    ProfileRuntimeOut,
     ProfileUpdate,
 )
 from app.services import profile_catalog
+from app.services import profile_runtime
 from app.services import profiles as svc
+from app.services.ai import token as ai_token
 
 router = APIRouter(prefix="/profiles", tags=["profiles"])
+
+
+def _bearer_token(request: Request) -> str:
+    """The raw bearer token on this request, if there is one."""
+    scheme, _, credentials = (request.headers.get("authorization") or "").partition(" ")
+    return credentials if scheme.lower() == "bearer" else ""
 
 
 def _cid(request: Request) -> str | None:
@@ -49,6 +59,61 @@ def catalog() -> ProfileCatalogOut:
     user, and the login screen has no reason to hold it back.
     """
     return ProfileCatalogOut.model_validate(profile_catalog.as_dict())
+
+
+@router.get("/runtime", response_model=ProfileRuntimeOut)
+def runtime_profile(
+    request: Request,
+    profile_id: uuid.UUID | None = None,
+    db: Session = Depends(get_db),
+    x_ac_service_token: str | None = Header(default=None, alias="X-AC-Service-Token"),
+) -> ProfileRuntimeOut:
+    """The profile the automations run with, derived from Postgres.
+
+    This is what replaced `/files/config/user_profile.json`. There is no file to
+    keep in step any more: n8n asks for the profile when it runs, so a change
+    saved in the picker applies to the very next execution.
+
+    Two callers, two rules:
+
+    * a signed-in user gets their own profile, and `profile_id` must be one they
+      own - asking for someone else's is a 404, never another tenant's data;
+    * an automation presenting the service token must name a `profile_id`. The
+      token belongs to the installation, not to a person, so it is never allowed
+      to mean "whoever happens to be first".
+    """
+    presented = (x_ac_service_token or "").strip()
+    if presented and ai_token.verify(db, presented):
+        if profile_id is None:
+            raise HTTPException(
+                status_code=400,
+                detail="an automation must name the profile_id it wants",
+            )
+        profile = db.get(Profile, profile_id)
+        if profile is None:
+            raise HTTPException(status_code=404, detail="profile not found")
+    else:
+        user = get_current_user(
+            creds=HTTPAuthorizationCredentials(
+                scheme="Bearer", credentials=_bearer_token(request)
+            )
+            if _bearer_token(request)
+            else None,
+            db=db,
+        )
+        if profile_id is not None:
+            profile = _guard(lambda: svc.get_profile(db, user.id, profile_id))
+        else:
+            profile = svc.effective_profile(db, user.id)
+            if profile is None:
+                raise HTTPException(status_code=404, detail="this user has no profile yet")
+
+    return ProfileRuntimeOut(
+        profile_id=str(profile.id),
+        name=profile.name,
+        updated_at=profile.updated_at.isoformat() if profile.updated_at else "",
+        profile=profile_runtime.build(profile.configuration),
+    )
 
 
 @router.get("/completeness", response_model=ProfileCompletenessOut)

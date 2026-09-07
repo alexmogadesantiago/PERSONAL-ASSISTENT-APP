@@ -101,7 +101,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Añade a cada correo el idioma resuelto desde config/user_profile.json.\nconst fs = require('fs');\nlet user = { selections: {} };\nlet modules = {};\ntry { user = JSON.parse(fs.readFileSync('/files/config/user_profile.json', 'utf8')); } catch (e) {}\ntry { modules = JSON.parse(fs.readFileSync('/files/config/modules.json', 'utf8')); } catch (e) {}\nconst idId = (user.selections && user.selections.idioma && user.selections.idioma[0]) || 'espanol';\nconst im = (modules.idioma || []).find((o) => o && o.id === idId);\nconst idioma = (im && im.valores && im.valores.codigo) || 'es';\nreturn $input.all().map((it, idx) => ({ json: { ...it.json, idioma }, pairedItem: it.pairedItem || { item: idx } }));\n"
+        "jsCode": "// El idioma sale del perfil guardado en PostgreSQL (/api/profiles/runtime),\n// no de un fichero estatico. Se anade a cada correo, igual que antes.\nconst perfil = $('Perfil (API)').first().json.profile || {};\nconst idioma = perfil.idioma || 'es';\nreturn $input.all().map((it, idx) => ({\n  json: { ...it.json, idioma },\n  pairedItem: it.pairedItem || { item: idx },\n}));\n"
       },
       "id": "cargar-perfil",
       "name": "Cargar perfil",
@@ -277,6 +277,29 @@
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "url": "={{ (($env.AC_API_URL || '').match(/^https?:\\/\\//) ? ($env.AC_API_URL || '') : 'https://' + ($env.AC_API_URL || '')).replace(/\\/+$/, '') }}/api/profiles/runtime?profile_id={{ $env.AC_PROFILE_ID }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-AC-Service-Token",
+              "value": "={{ $env.AC_SERVICE_TOKEN }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "perfil-api-node",
+      "name": "Perfil (API)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -640,
+        260
+      ]
     }
   ],
   "connections": {
@@ -328,7 +351,7 @@
       "main": [
         [
           {
-            "node": "Cargar perfil",
+            "node": "Perfil (API)",
             "type": "main",
             "index": 0
           }
@@ -413,6 +436,17 @@
         [
           {
             "node": "Parsear análisis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Perfil (API)": {
+      "main": [
+        [
+          {
+            "node": "Cargar perfil",
             "type": "main",
             "index": 0
           }

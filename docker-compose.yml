@@ -67,6 +67,10 @@ services:
       # Intelligence and pasted into .env.
       AC_API_URL: ${AC_API_URL:-http://backend:8080}
       AC_SERVICE_TOKEN: ${AC_SERVICE_TOKEN:-}
+      # Which stored profile the automations run with. The visual picker
+      # writes it to Postgres; the workflows fetch it at run time from
+      # /api/profiles/runtime, so there is no file to keep in step.
+      AC_PROFILE_ID: ${AC_PROFILE_ID:-}
       # --- secrets consumed by workflow HTTP nodes ---
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
       # Un bot de Telegram por workflow (ver CREDENCIALES.md).

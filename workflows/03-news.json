@@ -34,7 +34,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Lee el perfil del usuario (config/user_profile.json) y el catálogo\n// (config/modules.json), ambos montados en /files/config, y resuelve la\n// configuración concreta que consumen los nodos siguientes.\nconst fs = require('fs');\nconst DIR = '/files/config';\n\nlet user = { selections: {}, ubicacion_laboral: '' };\nlet modules = {};\ntry { user = JSON.parse(fs.readFileSync(DIR + '/user_profile.json', 'utf8')); } catch (e) {}\ntry { modules = JSON.parse(fs.readFileSync(DIR + '/modules.json', 'utf8')); } catch (e) {}\n\nconst pick = (dim) => Array.isArray(user.selections && user.selections[dim]) ? user.selections[dim] : [];\nconst find = (list, id) => (list || []).find((o) => o && o.id === id);\n\nconst idiomaId = pick('idioma')[0] || 'espanol';\nconst idioma = (find(modules.idioma, idiomaId) && find(modules.idioma, idiomaId).valores.codigo) || 'es';\n\nconst LOCALE = {\n  es: ['es', 'ES', 'ES:es'],\n  ca: ['ca', 'ES', 'ES:ca'],\n  en: ['en-US', 'US', 'US:en'],\n  fr: ['fr', 'FR', 'FR:fr'],\n  de: ['de', 'DE', 'DE:de'],\n};\nconst loc = LOCALE[idioma] || LOCALE.es;\nconst hl = loc[0], gl = loc[1], ceid = loc[2];\n\nconst cats = [...new Set(\n  pick('intereses_rss').flatMap((id) => {\n    const m = find(modules.intereses_rss, id);\n    return (m && m.valores && m.valores.categorias_feed) || [];\n  })\n)];\n\nconst query = cats.length ? '(' + cats.join(' OR ') + ')' : '(economía OR tecnología OR ciencia OR IA)';\nconst feed_url = 'https://news.google.com/rss/search?q=' + encodeURIComponent(query)\n  + '&hl=' + hl + '&gl=' + gl + '&ceid=' + encodeURIComponent(ceid);\n\nconst estiloId = pick('estilo_marca_personal')[0];\nconst em = find(modules.estilo_marca_personal, estiloId);\nconst tono = (em && em.valores && em.valores.tono) || 'Claro, objetivo y sin adornos.';\n\nreturn [{ json: { profile: {\n  idioma,\n  feed_url,\n  tono,\n  max_palabras: 80,\n  categorias: cats,\n  ubicacion: user.ubicacion_laboral || '',\n} } }];\n"
+        "jsCode": "// Perfil desde PostgreSQL via /api/profiles/runtime. El feed de Google News\n// ya viene construido con las categorias y el idioma que eligio el usuario.\nconst p = $('Perfil (API)').first().json.profile || {};\nreturn [{ json: { profile: {\n  idioma: p.idioma || 'es',\n  feed_url: p.feed_url || '',\n  tono: p.tono || 'Claro, objetivo y sin adornos.',\n  max_palabras: p.max_palabras || 80,\n  categorias: Array.isArray(p.categorias) ? p.categorias : [],\n  ubicacion: p.location || '',\n} } }];\n"
       },
       "id": "cargar-perfil",
       "name": "Cargar perfil",
@@ -177,6 +177,29 @@
       ],
       "id": "9f1b9968-5b6f-464c-99cc-40b7d593d414",
       "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "url": "={{ (($env.AC_API_URL || '').match(/^https?:\\/\\//) ? ($env.AC_API_URL || '') : 'https://' + ($env.AC_API_URL || '')).replace(/\\/+$/, '') }}/api/profiles/runtime?profile_id={{ $env.AC_PROFILE_ID }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-AC-Service-Token",
+              "value": "={{ $env.AC_SERVICE_TOKEN }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "perfil-api-node",
+      "name": "Perfil (API)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -1096,
+        224
+      ]
     }
   ],
   "connections": {
@@ -184,7 +207,7 @@
       "main": [
         [
           {
-            "node": "Cargar perfil",
+            "node": "Perfil (API)",
             "type": "main",
             "index": 0
           }
@@ -195,7 +218,7 @@
       "main": [
         [
           {
-            "node": "Cargar perfil",
+            "node": "Perfil (API)",
             "type": "main",
             "index": 0
           }
@@ -284,6 +307,17 @@
         [
           {
             "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Perfil (API)": {
+      "main": [
+        [
+          {
+            "node": "Cargar perfil",
             "type": "main",
             "index": 0
           }

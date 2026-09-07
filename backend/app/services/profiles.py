@@ -22,6 +22,9 @@ PROFILE_DIMENSIONS: tuple[str, ...] = (
     "objetivo_profesional",
     "ubicacion",
     "modalidad",
+    # The language the automations write in. It used to live only in the static
+    # file the workflows read, so the picker could not set it.
+    "idioma",
     "experiencia_nivel",
     "intereses",
     "preferencias_laborales",
@@ -391,3 +394,22 @@ def _clear_other_primary(db: Session, user_id: uuid.UUID, *, keep: uuid.UUID) ->
     ):
         row.is_primary = False
     db.flush()
+
+
+def effective_profile(db: Session, user_id: uuid.UUID) -> Profile | None:
+    """The profile the automations should run with for this user.
+
+    Primary first, then any active one, then the oldest. A user with no profile
+    at all gets None - the caller decides whether that is an error or simply an
+    installation nobody has configured yet.
+    """
+    rows = list_profiles(db, user_id)
+    if not rows:
+        return None
+    for row in rows:
+        if row.is_primary:
+            return row
+    for row in rows:
+        if row.is_active:
+            return row
+    return rows[0]

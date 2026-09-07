@@ -175,6 +175,16 @@ _UBICACION = _opts(
     ("otra", "Otra"),
 )
 
+#: Languages the automations can write in. The ids are the codes the runtime
+#: profile hands to the workflows, so there is nothing to translate later.
+_IDIOMA = _opts(
+    ("es", "Espanol"),
+    ("ca", "Catala"),
+    ("en", "English"),
+    ("fr", "Francais"),
+    ("de", "Deutsch"),
+)
+
 _MODALIDAD = _opts(
     ("presencial", "Presencial"),
     ("hibrido", "Híbrido"),
@@ -398,6 +408,16 @@ SECTIONS: tuple[Section, ...] = (
                 free_text_label="¿Dónde?",
             ),
             Field(path=("modalidad",), label="Modalidad", kind="multi", options=_MODALIDAD),
+            # The automations write in this language and search news in it. It
+            # used to be read from a static file the picker could not reach, so
+            # the user's real choice never applied; it is a picker field now.
+            Field(
+                path=("idioma",),
+                label="Idioma",
+                kind="single",
+                options=_IDIOMA,
+                hint="En qué idioma te escriben los resúmenes y borradores.",
+            ),
         ),
     ),
     Section(
@@ -506,6 +526,21 @@ SECTIONS: tuple[Section, ...] = (
         ),
     ),
 )
+
+
+def field_at(path) -> Field | None:
+    """The catalogue field stored at `path`, or None if nothing lives there.
+
+    Used by `services.profile_runtime` to turn stored option ids back into the
+    labels the automations search with, so the catalogue stays the only
+    taxonomy in the product.
+    """
+    wanted = tuple(path)
+    for section in SECTIONS:
+        for field in section.fields:
+            if field.path == wanted:
+                return field
+    return None
 
 
 def as_dict() -> dict:
