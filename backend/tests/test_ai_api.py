@@ -444,3 +444,189 @@ def test_the_monitoring_tile_reflects_the_ai_configuration(client, monkeypatch):
     assert tile["meta"]["provider"] == "nvidia_nim"
     assert tile["meta"]["provider_label"] == "NVIDIA NIM"
     assert "k" != tile["target"]  # target is a label, never a credential
+
+
+# ------------------------------------------------ OpenRouter as fallback ---
+#
+# The shipped arrangement: NVIDIA NIM answers, OpenRouter catches it when NIM
+# has a bad minute, and Gemini stays available but unused.
+
+
+def configure_pair(client, token, *, primary="nvidia_nim", fallback="openrouter"):
+    """Primary + fallback, each with its own key."""
+    return client.put(
+        "/api/ai/config",
+        headers=auth(token),
+        json={
+            "provider": primary,
+            "fallback_enabled": True,
+            "fallback_provider": fallback,
+            "credentials": [
+                {"provider": primary, "api_key": "primary-key"},
+                {"provider": fallback, "api_key": "fallback-key"},
+            ],
+        },
+    ).json()
+
+
+def test_a_fallback_key_can_be_saved_without_changing_the_primary(client):
+    """The panel must be able to arm the fallback without demoting NIM."""
+    token = register(client)
+    client.put(
+        "/api/ai/config",
+        headers=auth(token),
+        json={"provider": "nvidia_nim", "credentials": [{"provider": "nvidia_nim", "api_key": "k"}]},
+    )
+
+    body = client.put(
+        "/api/ai/config",
+        headers=auth(token),
+        json={"credentials": [{"provider": "openrouter", "api_key": "sk-or-k"}]},
+    ).json()
+
+    assert body["provider"] == "nvidia_nim", "saving a key must not change the primary"
+    openrouter = next(p for p in body["providers"] if p["provider"] == "openrouter")
+    assert openrouter["secret_configured"] is True
+    assert body["effective_fallback_provider"] == "openrouter"
+    assert "sk-or-k" not in json.dumps(body)
+
+
+def test_openrouter_can_be_tested_before_it_is_ever_used(client, monkeypatch):
+    """You should be able to prove the fallback works while NIM is primary."""
+    token = register(client)
+    configure_pair(client, token)
+    ai_stubs.install(
+        monkeypatch,
+        ai_stubs.routes(
+            {ai_stubs.OPENROUTER: ai_stubs.openai_completion(json.dumps({"ok": True}))}
+        ),
+    )
+
+    body = client.post(
+        "/api/ai/test", headers=auth(token), json={"provider": "openrouter"}
+    ).json()
+    assert body["ok"] is True
+    assert body["provider"] == "openrouter"
+
+
+@pytest.mark.parametrize("status", [401, 403])
+def test_testing_openrouter_reports_a_refused_key(client, monkeypatch, status):
+    token = register(client)
+    configure_pair(client, token)
+    ai_stubs.install(monkeypatch, ai_stubs.routes({ai_stubs.OPENROUTER: ai_stubs.error(status)}))
+
+    body = client.post(
+        "/api/ai/test", headers=auth(token), json={"provider": "openrouter"}
+    ).json()
+    assert body["ok"] is False
+    assert body["status"] == "invalid"
+    assert "fallback-key" not in json.dumps(body)
+
+
+@pytest.mark.parametrize("status", [429, 500, 502, 503, 504])
+def test_a_retryable_nim_failure_is_served_by_openrouter(client, monkeypatch, status):
+    token = register(client)
+    configure_pair(client, token)
+    ai_stubs.install(
+        monkeypatch,
+        ai_stubs.routes(
+            {
+                ai_stubs.NIM: ai_stubs.error(status),
+                ai_stubs.OPENROUTER: ai_stubs.openai_completion(json.dumps(PAYLOAD)),
+            }
+        ),
+    )
+
+    body = client.post(
+        "/api/ai/generate", headers=auth(token), json={"prompt": "x", "json_schema": SCHEMA}
+    ).json()
+    assert body["used_fallback"] is True
+    assert body["provider"] == "openrouter"
+    assert body["data"] == PAYLOAD, "the JSON contract must survive the swap"
+
+
+def test_a_nim_timeout_is_served_by_openrouter(client, monkeypatch):
+    token = register(client)
+    configure_pair(client, token)
+    ai_stubs.install(
+        monkeypatch,
+        ai_stubs.routes(
+            {
+                ai_stubs.NIM: ai_stubs.timeout,
+                ai_stubs.OPENROUTER: ai_stubs.openai_completion(json.dumps(PAYLOAD)),
+            }
+        ),
+    )
+
+    body = client.post("/api/ai/generate", headers=auth(token), json={"prompt": "x"}).json()
+    assert body["used_fallback"] is True
+
+
+@pytest.mark.parametrize("status", [400, 401, 403])
+def test_a_permanent_nim_failure_never_reaches_openrouter(client, monkeypatch, status):
+    token = register(client)
+    configure_pair(client, token)
+    recorder = ai_stubs.install(
+        monkeypatch,
+        ai_stubs.routes(
+            {
+                ai_stubs.NIM: ai_stubs.error(status),
+                ai_stubs.OPENROUTER: ai_stubs.openai_completion(json.dumps(PAYLOAD)),
+            }
+        ),
+    )
+
+    r = client.post("/api/ai/generate", headers=auth(token), json={"prompt": "x"})
+    assert r.status_code in (400, 502)
+    assert recorder.calls_to(ai_stubs.OPENROUTER) == [], "the fallback must not have been called"
+
+
+def test_a_real_fallback_is_visible_afterwards(client, monkeypatch):
+    """Health says the primary is fine again; the trail still shows what happened."""
+    token = register(client)
+    configure_pair(client, token)
+    ai_stubs.install(
+        monkeypatch,
+        ai_stubs.routes(
+            {
+                ai_stubs.NIM: ai_stubs.error(503),
+                ai_stubs.OPENROUTER: ai_stubs.openai_completion(json.dumps(PAYLOAD)),
+            }
+        ),
+    )
+    client.post("/api/ai/generate", headers=auth(token), json={"prompt": "x"})
+
+    # NIM recovers
+    ai_stubs.install(monkeypatch, ai_stubs.routes({ai_stubs.NIM: ai_stubs.openai_models("m")}))
+    health = client.get("/api/ai/health?force=true", headers=auth(token)).json()
+
+    assert health["status"] == "online"
+    assert health["last_fallback"] is not None
+    assert health["last_fallback"]["primary"] == "nvidia_nim"
+    assert health["last_fallback"]["fallback"] == "openrouter"
+
+    tile = next(s for s in client.post("/api/system/check", headers=auth(token)).json()["services"]
+                if s["name"] == "ai")
+    assert tile["meta"]["last_fallback"]["fallback"] == "openrouter"
+
+
+def test_no_credential_ever_appears_in_an_ai_response(client, monkeypatch):
+    token = register(client)
+    configure_pair(client, token)
+    ai_stubs.install(
+        monkeypatch,
+        ai_stubs.routes({"/chat/completions": ai_stubs.openai_completion(json.dumps(PAYLOAD))}),
+    )
+    service_token = client.post("/api/ai/service-token", headers=auth(token)).json()["token"]
+
+    blob = "".join(
+        client.get(path, headers=auth(token)).text
+        for path in ("/api/ai/config", "/api/ai/providers", "/api/ai/health")
+    )
+    blob += client.post("/api/ai/test", headers=auth(token), json={}).text
+    blob += client.post(
+        "/api/ai/generate", headers={"X-AC-Service-Token": service_token}, json={"prompt": "x"}
+    ).text
+
+    assert "primary-key" not in blob
+    assert "fallback-key" not in blob

@@ -16,6 +16,7 @@ the real fault from the operator.
 """
 from __future__ import annotations
 
+import datetime as dt
 import hashlib
 import logging
 import time
@@ -105,6 +106,56 @@ def reset_caches() -> None:
     """Forget every memoised verdict (forced check, or a test)."""
     _health_cache.update(fingerprint=None, health=None, at=0.0)
     _models_cache.clear()
+
+
+#: how far back a fallback still counts as "recent" for the dashboard
+FALLBACK_LOOKBACK_SECONDS = 3600
+
+
+def recent_fallback(db: Session | None, *, within_seconds: float = FALLBACK_LOOKBACK_SECONDS):
+    """The last generation that actually fell back, if it was recent.
+
+    Health answers "can the primary be reached right now". That is a different
+    question from "did an automation just get served by the fallback": a 429 at
+    08:04 is invisible to a probe at 08:05, yet it is exactly what an operator
+    needs to see. The `ai.fallback` audit row already records it, so this reads
+    that trail rather than inventing new state.
+
+    Returns None when nothing recent, or a browser-safe dict - the audit `meta`
+    holds provider ids and a sanitised reason, never a key or a prompt.
+    """
+    if db is None:
+        return None
+    from app.models import SystemEvent
+
+    try:
+        event = (
+            db.query(SystemEvent)
+            .filter(SystemEvent.type == "ai.fallback")
+            .order_by(SystemEvent.created_at.desc())
+            .first()
+        )
+    except Exception as exc:  # noqa: BLE001 - never let the dashboard fail on this
+        log.warning("could not read the fallback trail: %s", type(exc).__name__)
+        return None
+    if event is None:
+        return None
+
+    occurred = event.created_at
+    if occurred.tzinfo is None:  # SQLite hands back naive datetimes
+        occurred = occurred.replace(tzinfo=dt.timezone.utc)
+    age = (dt.datetime.now(dt.timezone.utc) - occurred).total_seconds()
+    if age > within_seconds:
+        return None
+
+    meta = event.meta or {}
+    return {
+        "at": occurred.isoformat(),
+        "age_seconds": round(age, 1),
+        "primary": str(meta.get("primary") or ""),
+        "fallback": str(meta.get("fallback") or ""),
+        "reason": str(meta.get("reason") or ""),
+    }
 
 
 class AIService:
@@ -420,10 +471,12 @@ __all__ = [
     "AIHealth",
     "AIService",
     "DEGRADED",
+    "FALLBACK_LOOKBACK_SECONDS",
     "GenerationResult",
     "INVALID",
     "NOT_CONFIGURED",
     "OFFLINE",
     "ONLINE",
+    "recent_fallback",
     "reset_caches",
 ]

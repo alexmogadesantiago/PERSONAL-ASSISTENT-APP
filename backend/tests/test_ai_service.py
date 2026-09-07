@@ -367,3 +367,95 @@ def test_revoking_the_service_token_denies_it(env_unset, db_session):
     token = ai_token.rotate(db_session)
     ai_token.revoke(db_session)
     assert ai_token.verify(db_session, token) is False
+
+
+# ------------------------------------------------- fallback observability ---
+#
+# Health answers "is the primary reachable right now". Whether a generation was
+# actually served by the fallback is a different question, and the one an
+# operator asks after an incident. It is read from the `ai.fallback` audit trail
+# rather than from new state.
+
+
+def _record_fallback(
+    db, *, primary="nvidia_nim", fallback="openrouter", reason="HTTP 429", ago_seconds=0.0
+):
+    """Write an `ai.fallback` row the way the API does.
+
+    `ago_seconds` sets `created_at` explicitly: two rows written in the same
+    instant have no defined order, so a test about ordering has to give them
+    distinct timestamps, exactly as real traffic would.
+    """
+    import datetime as dt
+
+    from app.services import audit
+
+    event = audit.record(
+        db,
+        type="ai.fallback",
+        message=f"AI fallback used: {primary} -> {fallback}",
+        meta={"primary": primary, "fallback": fallback, "reason": reason},
+    )
+    if ago_seconds:
+        event.created_at = dt.datetime.now(dt.timezone.utc) - dt.timedelta(seconds=ago_seconds)
+        db.commit()
+    return event
+
+
+def test_no_fallback_recorded_reads_as_nothing(env_unset, db_session):
+    from app.services.ai.service import recent_fallback
+
+    assert recent_fallback(db_session) is None
+
+
+def test_a_recent_fallback_is_reported(env_unset, db_session):
+    from app.services.ai.service import recent_fallback
+
+    _record_fallback(db_session)
+    event = recent_fallback(db_session)
+
+    assert event is not None
+    assert event["primary"] == "nvidia_nim"
+    assert event["fallback"] == "openrouter"
+    assert event["reason"] == "HTTP 429"
+    assert event["age_seconds"] < 60
+
+
+def test_an_old_fallback_is_not_reported(env_unset, db_session):
+    """Yesterday's incident must not sit on today's dashboard."""
+    from app.services.ai.service import recent_fallback
+
+    _record_fallback(db_session, ago_seconds=7200)
+    assert recent_fallback(db_session) is None
+    # ...but it is still there when asked for a wider window
+    assert recent_fallback(db_session, within_seconds=10800) is not None
+
+
+def test_the_most_recent_fallback_wins(env_unset, db_session):
+    from app.services.ai.service import recent_fallback
+
+    _record_fallback(db_session, reason="HTTP 500", ago_seconds=120)
+    _record_fallback(db_session, reason="HTTP 429", ago_seconds=10)
+    assert recent_fallback(db_session)["reason"] == "HTTP 429"
+
+
+def test_the_fallback_trail_carries_no_secret(env_unset, db_session, monkeypatch):
+    """The audit row is written from provider ids and a sanitised message."""
+    from app.services.ai.service import recent_fallback
+
+    _record_fallback(db_session, reason="the API key was rejected (HTTP 401)")
+    blob = json.dumps(recent_fallback(db_session))
+    assert "nvapi-" not in blob and "sk-or-" not in blob
+
+
+async def test_a_past_fallback_does_not_make_a_healthy_primary_look_degraded(
+    env_unset, db_session, monkeypatch
+):
+    """A 429 ten minutes ago is history, not an outage happening now."""
+    env_unset.nvidia_nim_api_key = "nvapi-k"
+    env_unset.openrouter_api_key = "sk-or-k"
+    _record_fallback(db_session)
+    ai_stubs.install(monkeypatch, ai_stubs.routes({ai_stubs.NIM: ai_stubs.openai_models("m")}))
+
+    health = await AIService.from_db(db_session).health()
+    assert health.status == "online"

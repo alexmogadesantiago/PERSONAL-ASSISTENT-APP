@@ -2,21 +2,25 @@ import { useEffect, useState } from "react";
 import { useAiConfig, useAiModels, useAiMutations, useAiProviders } from "@/hooks/queries";
 import { Badge, Button, Card, CardTitle, Input, Select } from "@/components/ui";
 import { QueryBoundary, errorMessage } from "@/components/common";
-import { relativeTime } from "@/utils/format";
 import { cn } from "@/utils/cn";
 import type { AiProviderId, AiProviderInfo } from "@/api/types";
 
 /**
  * The Artificial Intelligence panel.
  *
- * One decision per row, in the order a person actually makes them: which
- * provider, which model, the key, and what happens when the provider is down.
- * Everything is stored by the backend (`service_configs`), so nothing here ever
- * requires editing `.env` or waiting for a redeploy.
+ * Two decisions live here and they are deliberately kept apart:
  *
- * The stored key is never sent to the browser: the field starts empty, an empty
- * field means "keep what is stored", and only the last four characters are ever
- * displayed.
+ *   WHO ANSWERS   the primary provider, its model, and what happens when it
+ *                 fails (the fallback provider and its model);
+ *   CREDENTIALS   each provider's key and endpoint, editable for ANY provider
+ *                 regardless of which one is primary.
+ *
+ * Keeping them in one control was a real bug: setting the OpenRouter key meant
+ * selecting OpenRouter, which made it the primary - so a fallback could not be
+ * configured without giving up the primary you wanted.
+ *
+ * A stored key is never sent to the browser: the field starts empty, an empty
+ * field means "keep what is stored", and only the last four characters show.
  */
 
 function ProviderTile({
@@ -61,50 +65,113 @@ function ProviderTile({
   );
 }
 
+/** A model picker that also accepts an id the provider did not list. */
+function ModelPicker({
+  label,
+  provider,
+  value,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  provider: AiProviderId | "";
+  value: string;
+  disabled: boolean;
+  onChange: (id: string) => void;
+}) {
+  const models = useAiModels(provider);
+  const options = models.data?.data ?? [];
+  const known = options.some((m) => m.id === value);
+  return (
+    <div>
+      <Select
+        label={label}
+        value={known ? value : "__custom__"}
+        disabled={disabled}
+        onChange={(e) => {
+          if (e.target.value !== "__custom__") onChange(e.target.value);
+        }}
+        // The backend says whether the list is live and, for NVIDIA NIM, warns
+        // that a listed model is not necessarily one this account can invoke.
+        hint={models.data?.detail || undefined}
+      >
+        {options.map((m) => (
+          <option key={m.id} value={m.id}>
+            {m.label}
+          </option>
+        ))}
+        <option value="__custom__">Other (type it below)</option>
+      </Select>
+      {!known && (
+        <Input
+          aria-label={`${label} — custom id`}
+          placeholder="provider/model-id"
+          value={value}
+          spellCheck={false}
+          autoComplete="off"
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      )}
+    </div>
+  );
+}
+
 export function AiSettingsCard({ canEdit }: { canEdit: boolean }) {
   const config = useAiConfig();
   const providers = useAiProviders();
-  const { save, test, rotateToken } = useAiMutations();
+  const { save, saveCredentials, test, rotateToken } = useAiMutations();
 
+  // who answers
   const [provider, setProvider] = useState<AiProviderId | "">("");
   const [model, setModel] = useState("");
-  const [apiKey, setApiKey] = useState("");
-  const [baseUrl, setBaseUrl] = useState("");
   const [fallbackEnabled, setFallbackEnabled] = useState(true);
   const [fallbackProvider, setFallbackProvider] = useState<AiProviderId | "">("");
+  const [fallbackModel, setFallbackModel] = useState("");
   const [saved, setSaved] = useState(false);
+
+  // credentials, for whichever provider is being edited
+  const [credProvider, setCredProvider] = useState<AiProviderId | "">("");
+  const [apiKey, setApiKey] = useState("");
+  const [baseUrl, setBaseUrl] = useState("");
+  const [keySaved, setKeySaved] = useState(false);
+
   const [freshToken, setFreshToken] = useState<string | null>(null);
 
-  // Follow the backend, including a change made by another admin. Selecting a
-  // provider in the UI is a local edit until Save, so the effect only re-seeds
-  // when the server's own answer changes.
+  // Follow the backend, including a change made by another admin.
   useEffect(() => {
     if (!config.data) return;
     const preferred =
       config.data.provider || (providers.data?.find((p) => p.recommended)?.id ?? "");
     setProvider(preferred);
-    setModel(config.data.model);
+    setModel(config.data.model || "");
     setFallbackEnabled(config.data.fallback_enabled);
     setFallbackProvider(config.data.fallback_provider);
+    setFallbackModel(config.data.fallback_model || "");
+    setCredProvider((current) => current || preferred);
   }, [config.data, providers.data]);
 
-  const models = useAiModels(provider);
   const selected = providers.data?.find((p) => p.id === provider);
+  const editing = providers.data?.find((p) => p.id === credProvider);
 
-  // Switching provider must not carry the old provider's model across.
+  // Changing which provider is primary must not carry the old model across.
   useEffect(() => {
     if (!selected) return;
-    setApiKey("");
-    setBaseUrl("");
-    if (config.data?.provider === selected.id) setModel(config.data.model);
+    if (config.data?.provider === selected.id) setModel(config.data.model || "");
     else setModel(selected.model || selected.default_model);
   }, [selected, config.data]);
 
-  const busy = save.isPending || test.isPending;
-  const modelOptions = models.data?.data ?? [];
-  const modelIsKnown = modelOptions.some((m) => m.id === model);
+  // Switching the credential editor clears the fields: they belong to a
+  // different provider now, and a half-typed key must not leak across.
+  useEffect(() => {
+    setApiKey("");
+    setBaseUrl("");
+    setKeySaved(false);
+  }, [credProvider]);
 
-  const onSave = () => {
+  const busy = save.isPending || saveCredentials.isPending || test.isPending;
+
+  const onSaveSelection = () => {
     if (!provider) return;
     setSaved(false);
     save.mutate(
@@ -113,23 +180,36 @@ export function AiSettingsCard({ canEdit }: { canEdit: boolean }) {
         model: model.trim(),
         fallback_enabled: fallbackEnabled,
         fallback_provider: fallbackEnabled ? fallbackProvider : "",
+        fallback_model: fallbackEnabled ? fallbackModel.trim() : "",
+      },
+      { onSuccess: () => setSaved(true) },
+    );
+  };
+
+  const onSaveCredentials = () => {
+    if (!credProvider) return;
+    setKeySaved(false);
+    saveCredentials.mutate(
+      {
         credentials: [
           {
-            provider,
+            provider: credProvider,
             ...(apiKey.trim() ? { api_key: apiKey.trim() } : {}),
             ...(baseUrl.trim() ? { base_url: baseUrl.trim() } : {}),
-            model: model.trim(),
           },
         ],
       },
       {
         onSuccess: () => {
           setApiKey("");
-          setSaved(true);
+          setKeySaved(true);
         },
       },
     );
   };
+
+  const testResultFor = (id: string) =>
+    test.isSuccess && test.data.provider === id ? test.data : null;
 
   return (
     <Card>
@@ -165,7 +245,7 @@ export function AiSettingsCard({ canEdit }: { canEdit: boolean }) {
       >
         <div className="space-y-4">
           <div>
-            <p className="label mb-2">Provider</p>
+            <p className="label mb-2">Primary provider</p>
             <div className="grid gap-2 sm:grid-cols-3" role="radiogroup" aria-label="AI provider">
               {(providers.data ?? []).map((p) => (
                 <ProviderTile
@@ -179,71 +259,15 @@ export function AiSettingsCard({ canEdit }: { canEdit: boolean }) {
             </div>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <Select
-                label="Model"
-                value={modelIsKnown ? model : "__custom__"}
-                disabled={!canEdit || busy}
-                onChange={(e) => {
-                  if (e.target.value !== "__custom__") setModel(e.target.value);
-                }}
-                // The backend says whether the list is live and, for NVIDIA NIM,
-                // warns that a listed model is not necessarily one this account
-                // can invoke.
-                hint={models.data?.detail || undefined}
-              >
-                {modelOptions.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.label}
-                  </option>
-                ))}
-                <option value="__custom__">Other (type it below)</option>
-              </Select>
-              {!modelIsKnown && (
-                <Input
-                  aria-label="Custom model id"
-                  placeholder={selected?.default_model ?? "provider/model-id"}
-                  value={model}
-                  spellCheck={false}
-                  autoComplete="off"
-                  disabled={!canEdit || busy}
-                  onChange={(e) => setModel(e.target.value)}
-                />
-              )}
-            </div>
-
-            <Input
-              label="Provider key"
-              type="password"
-              autoComplete="new-password"
-              placeholder={
-                selected?.secret_configured
-                  ? `stored (${selected.secret_hint}) — leave blank to keep`
-                  : "paste the key"
-              }
-              value={apiKey}
-              disabled={!canEdit || busy}
-              onChange={(e) => setApiKey(e.target.value)}
-              hint={selected?.key_help}
-            />
-          </div>
-
-          <Input
-            label="Endpoint (optional)"
-            placeholder={selected?.default_base_url ?? "https://…"}
-            value={baseUrl}
-            spellCheck={false}
-            autoComplete="off"
+          <ModelPicker
+            label="Model"
+            provider={provider}
+            value={model}
             disabled={!canEdit || busy}
-            onChange={(e) => setBaseUrl(e.target.value)}
-            hint={
-              selected
-                ? `Leave empty for ${selected.base_url || selected.default_base_url}. Set it to point at a self-hosted endpoint.`
-                : undefined
-            }
+            onChange={setModel}
           />
 
+          {/* -------------------------------------------------- fallback -- */}
           <div className="border-t border-border pt-3">
             <label className="flex items-center gap-2 text-sm text-fg">
               <input
@@ -255,12 +279,12 @@ export function AiSettingsCard({ canEdit }: { canEdit: boolean }) {
               Enable fallback
             </label>
             <p className="mt-1 text-xs text-muted">
-              Used only when the provider itself fails — a timeout, a rate limit or a server
-              error. A rejected key is reported instead, because retrying it elsewhere would fix
-              nothing.
+              Used only when the provider itself fails — a timeout, a rate limit, a 5xx or an
+              unreachable endpoint. A rejected key or a malformed request is reported instead,
+              because sending it to a second provider would fail the same way.
             </p>
             {fallbackEnabled && (
-              <div className="mt-2">
+              <div className="mt-2 grid gap-3 sm:grid-cols-2">
                 <Select
                   label="Fallback provider"
                   value={fallbackProvider}
@@ -277,15 +301,24 @@ export function AiSettingsCard({ canEdit }: { canEdit: boolean }) {
                       </option>
                     ))}
                 </Select>
-                {config.data?.effective_fallback_provider ? (
-                  <p className="mt-1 text-xs text-ok">
-                    Active fallback: {config.data.effective_fallback_provider}
-                  </p>
-                ) : (
-                  <p className="mt-1 text-xs text-muted">
-                    No usable fallback yet — a second provider needs a key.
-                  </p>
-                )}
+                <ModelPicker
+                  label="Fallback model"
+                  provider={fallbackProvider || config.data?.effective_fallback_provider || ""}
+                  value={fallbackModel}
+                  disabled={!canEdit || busy || !fallbackProvider}
+                  onChange={setFallbackModel}
+                />
+                <div className="sm:col-span-2">
+                  {config.data?.effective_fallback_provider ? (
+                    <p className="text-xs text-ok">
+                      Active fallback: {config.data.effective_fallback_provider}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-muted">
+                      No usable fallback yet — a second provider needs a key. Add one below.
+                    </p>
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -294,12 +327,13 @@ export function AiSettingsCard({ canEdit }: { canEdit: boolean }) {
             <p className="text-xs text-warn">Still missing: {config.data.missing.join(", ")}</p>
           )}
 
-          {test.isSuccess && (
-            <p className={"text-xs " + (test.data.ok ? "text-ok" : "text-danger")}>
-              {test.data.ok ? "✓ " : ""}
-              {test.data.status.toUpperCase()} — {test.data.detail}
-              {test.data.model && ` · model ${test.data.model}`}
-              {test.data.latency_ms != null && ` · ${test.data.latency_ms} ms`}
+          {testResultFor(provider) && (
+            <p className={"text-xs " + (testResultFor(provider)!.ok ? "text-ok" : "text-danger")}>
+              {testResultFor(provider)!.ok ? "✓ " : ""}
+              {testResultFor(provider)!.status.toUpperCase()} — {testResultFor(provider)!.detail}
+              {testResultFor(provider)!.model && ` · model ${testResultFor(provider)!.model}`}
+              {testResultFor(provider)!.latency_ms != null &&
+                ` · ${testResultFor(provider)!.latency_ms} ms`}
             </p>
           )}
           {save.isError && <p className="text-xs text-danger">{errorMessage(save.error)}</p>}
@@ -315,7 +349,7 @@ export function AiSettingsCard({ canEdit }: { canEdit: boolean }) {
               <Button
                 size="sm"
                 aria-label="Save AI settings"
-                onClick={onSave}
+                onClick={onSaveSelection}
                 loading={save.isPending}
                 disabled={!provider}
               >
@@ -339,6 +373,111 @@ export function AiSettingsCard({ canEdit }: { canEdit: boolean }) {
             <p className="border-t border-border pt-3 text-xs text-muted">
               Only an administrator can change these settings.
             </p>
+          )}
+
+          {/* ------------------------------------------- credentials ------ */}
+          {canEdit && (
+            <div className="rounded-lg border border-border p-3">
+              <p className="label">Provider credentials</p>
+              <p className="mb-2 text-xs text-muted">
+                Any provider, whether or not it is the primary — this is how you give the
+                fallback its key without taking the primary away.
+              </p>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Select
+                  label="Provider"
+                  value={credProvider}
+                  disabled={busy}
+                  onChange={(e) => setCredProvider(e.target.value as AiProviderId | "")}
+                >
+                  {(providers.data ?? []).map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.label}
+                      {p.secret_configured ? ` (${p.secret_hint})` : " — no key yet"}
+                    </option>
+                  ))}
+                </Select>
+
+                <Input
+                  label="Provider key"
+                  type="password"
+                  autoComplete="new-password"
+                  placeholder={
+                    editing?.secret_configured
+                      ? `stored (${editing.secret_hint}) — leave blank to keep`
+                      : "paste the key"
+                  }
+                  value={apiKey}
+                  disabled={busy}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  hint={editing?.key_help}
+                />
+              </div>
+
+              <Input
+                label="Endpoint (optional)"
+                placeholder={editing?.default_base_url ?? "https://…"}
+                value={baseUrl}
+                spellCheck={false}
+                autoComplete="off"
+                disabled={busy}
+                onChange={(e) => setBaseUrl(e.target.value)}
+                hint={
+                  editing
+                    ? `Leave empty for ${editing.base_url || editing.default_base_url}. Set it to point at a self-hosted endpoint.`
+                    : undefined
+                }
+              />
+
+              {testResultFor(credProvider) && credProvider !== provider && (
+                <p
+                  className={
+                    "mt-2 text-xs " +
+                    (testResultFor(credProvider)!.ok ? "text-ok" : "text-danger")
+                  }
+                >
+                  {testResultFor(credProvider)!.ok ? "✓ " : ""}
+                  {testResultFor(credProvider)!.status.toUpperCase()} —{" "}
+                  {testResultFor(credProvider)!.detail}
+                  {testResultFor(credProvider)!.latency_ms != null &&
+                    ` · ${testResultFor(credProvider)!.latency_ms} ms`}
+                </p>
+              )}
+              {saveCredentials.isError && (
+                <p className="mt-2 text-xs text-danger">{errorMessage(saveCredentials.error)}</p>
+              )}
+              {keySaved && !saveCredentials.isPending && !saveCredentials.isError && (
+                <p className="mt-2 text-xs text-ok">Credentials saved.</p>
+              )}
+
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <Button
+                  size="sm"
+                  aria-label="Save provider credentials"
+                  onClick={onSaveCredentials}
+                  loading={saveCredentials.isPending}
+                  disabled={!credProvider}
+                >
+                  Save key
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  aria-label="Test this provider"
+                  onClick={() => credProvider && test.mutate({ provider: credProvider })}
+                  loading={test.isPending}
+                  disabled={!editing?.secret_configured}
+                  title={
+                    editing?.secret_configured
+                      ? undefined
+                      : "Save a key for this provider first"
+                  }
+                >
+                  Test this provider
+                </Button>
+              </div>
+            </div>
           )}
 
           {canEdit && config.data && (
@@ -386,14 +525,6 @@ export function AiSettingsCard({ canEdit }: { canEdit: boolean }) {
               Some values still come from the server environment. Saving here overrides them
               without a redeploy.
             </p>
-          )}
-          {config.data && config.data.service_token.source === "environment" && (
-            <p className="text-xs text-muted">
-              The automation token currently comes from the environment.
-            </p>
-          )}
-          {test.isSuccess && test.data.ok && (
-            <p className="text-xs text-muted">Last test {relativeTime(new Date().toISOString())}</p>
           )}
         </div>
       </QueryBoundary>

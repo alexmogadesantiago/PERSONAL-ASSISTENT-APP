@@ -49,7 +49,7 @@ from app.services.ai import config as ai_config
 from app.services.ai import registry
 from app.services.ai import token as ai_token
 from app.services.ai.errors import AIAuthError, AIBadRequest, AIError, AINotConfigured
-from app.services.ai.service import AIService, reset_caches
+from app.services.ai.service import AIService, recent_fallback, reset_caches
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
@@ -280,6 +280,9 @@ async def ai_health(
     health = await AIService.from_db(db).health(force=force)
     payload = health.as_dict()
     payload["checked_at"] = _now_iso()
+    # Whether a generation actually fell back is a different question from
+    # whether the primary answers right now; report both.
+    payload["last_fallback"] = recent_fallback(db)
     return AIHealthOut.model_validate(payload)
 
 

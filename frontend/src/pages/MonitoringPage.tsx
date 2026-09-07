@@ -59,6 +59,30 @@ function subLabel(row: Row): string {
   return row.status === "degraded" && fallback ? `${head} → serving from ${fallback}` : head;
 }
 
+/**
+ * The AI row's third line: a generation that really was served by the fallback.
+ *
+ * Not the same thing as the status. Health answers "can the primary be reached
+ * right now"; a rate limit at 08:04 is invisible to a probe at 08:05, even
+ * though it is exactly what an operator needs to know happened.
+ */
+function fallbackNotice(row: Row): string {
+  const event = (row.meta ?? {}).last_fallback as
+    | { primary?: string; fallback?: string; reason?: string; at?: string }
+    | null
+    | undefined;
+  if (!event || !event.fallback) return "";
+  const when = event.at ? relativeTime(event.at) : "recently";
+  const why = event.reason ? ` (${event.reason})` : "";
+  return `Fell back ${when}: ${event.primary} → ${event.fallback}${why}`;
+}
+
+/** The last error the probe recorded, when it adds something to `detail`. */
+function lastError(row: Row): string {
+  const error = String((row.meta ?? {}).error ?? "");
+  return error && error !== row.detail ? error : "";
+}
+
 function ServiceTable({ rows }: { rows: Row[] }) {
   return (
     <div className="overflow-x-auto">
@@ -90,6 +114,9 @@ function ServiceTable({ rows }: { rows: Row[] }) {
                       {subLabel(row) && (
                         <span className="block text-xs text-muted">{subLabel(row)}</span>
                       )}
+                      {fallbackNotice(row) && (
+                        <span className="block text-xs text-warn">{fallbackNotice(row)}</span>
+                      )}
                     </div>
                   </div>
                 </td>
@@ -106,6 +133,7 @@ function ServiceTable({ rows }: { rows: Row[] }) {
                 </td>
                 <td className="py-2.5 text-xs">
                   <span className={isProblem ? "text-danger" : "text-muted"}>{row.detail || "—"}</span>
+                  {lastError(row) && <span className="block text-danger">{lastError(row)}</span>}
                   {fix && row.status === "not_configured" && (
                     <>
                       {" "}

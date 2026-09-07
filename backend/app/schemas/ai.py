@@ -134,6 +134,9 @@ class AIHealthOut(BaseModel):
     error: str
     cached: bool
     checked_at: str
+    #: the last generation that actually fell back, if it was recent:
+    #: {at, age_seconds, primary, fallback, reason}. Never a key or a prompt.
+    last_fallback: dict | None = None
 
 
 class ChatMessage(BaseModel):

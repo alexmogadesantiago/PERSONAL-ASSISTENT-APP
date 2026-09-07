@@ -316,21 +316,23 @@ async def _check_profile() -> ServiceState:
 
 
 def _ai_config_sync():
-    """Resolve the AI configuration, degrading to environment-only.
+    """Resolve the AI configuration and read the fallback trail in one session.
 
     A Postgres outage must degrade exactly one tile, not blank the dashboard,
-    so a failed session falls back to what the environment alone says.
+    so a failed session falls back to what the environment alone says (and to
+    no fallback history, which is honest: we could not look).
     """
     from app.services.ai import config as ai_config
+    from app.services.ai.service import recent_fallback
 
     try:
         with _session_factory()() as db:
-            return ai_config.resolve(db)
+            return ai_config.resolve(db), recent_fallback(db)
     except Exception as exc:  # noqa: BLE001 - a probe must never take the app down
         log.warning(
             "ai config unavailable, falling back to environment: %s", type(exc).__name__
         )
-        return ai_config.resolve(None)
+        return ai_config.resolve(None), None
 
 
 async def _check_ai(*, force: bool = False) -> ServiceState:
@@ -347,7 +349,7 @@ async def _check_ai(*, force: bool = False) -> ServiceState:
     from app.services.ai import registry
     from app.services.ai.service import AIService
 
-    config = await asyncio.to_thread(_ai_config_sync)
+    config, last_fallback = await asyncio.to_thread(_ai_config_sync)
     service = AIService(config)
     try:
         health = await service.health(force=force)
@@ -392,6 +394,11 @@ async def _check_ai(*, force: bool = False) -> ServiceState:
             "fallback_status": health.fallback_status,
             "error": health.error,
             "cached": health.cached,
+            # A generation that actually fell back. Deliberately does NOT change
+            # `status`: health answers "is the primary reachable now", and a 429
+            # ten minutes ago does not make it unreachable now. It is reported
+            # alongside so an operator can see it happened at all.
+            "last_fallback": last_fallback,
         },
     )
 

@@ -118,6 +118,78 @@ describe("MonitoringPage", () => {
     expect(table.getByText("4 ms")).toBeInTheDocument();
   });
 
+  it("says when a generation was really served by the fallback", async () => {
+    // The primary is reachable again, so the status is healthy - but an
+    // automation was served by the fallback minutes ago and that must show.
+    const rows = [
+      service({
+        name: "ai",
+        kind: "provider",
+        status: "online",
+        online: true,
+        configured: true,
+        detail: "credential accepted",
+        latency_ms: 180,
+        meta: {
+          provider: "nvidia_nim",
+          provider_label: "NVIDIA NIM",
+          model: "nvidia/nemotron-3-super-120b-a12b",
+          last_fallback: {
+            at: new Date(Date.now() - 5 * 60_000).toISOString(),
+            age_seconds: 300,
+            primary: "nvidia_nim",
+            fallback: "openrouter",
+            reason: "rate limit or quota exceeded (HTTP 429)",
+          },
+        },
+      }),
+    ];
+    installFetchStub({
+      "GET /api/system/status": { body: statusBody(rows) },
+      "GET /api/system/metrics": { body: metrics },
+      "GET /api/auth/me": { body: sampleUser },
+    });
+    renderWithProviders(<MonitoringPage />);
+
+    const table = within(await screen.findByRole("table"));
+    expect(table.getByText("online")).toBeInTheDocument();
+    expect(table.getByText(/Fell back .*nvidia_nim .*openrouter/)).toBeInTheDocument();
+    expect(table.getByText(/HTTP 429/)).toBeInTheDocument();
+  });
+
+  it("shows the probe's last error when it adds to the message", async () => {
+    const rows = [
+      service({
+        name: "ai",
+        kind: "provider",
+        status: "degraded",
+        online: null,
+        configured: true,
+        detail: "primary NVIDIA NIM unavailable, serving from OpenRouter",
+        latency_ms: 210,
+        meta: {
+          provider: "nvidia_nim",
+          provider_label: "NVIDIA NIM",
+          model: "m",
+          fallback_provider: "openrouter",
+          fallback_label: "OpenRouter",
+          error: "provider error (HTTP 503)",
+        },
+      }),
+    ];
+    installFetchStub({
+      "GET /api/system/status": { body: statusBody(rows) },
+      "GET /api/system/metrics": { body: metrics },
+      "GET /api/auth/me": { body: sampleUser },
+    });
+    renderWithProviders(<MonitoringPage />);
+
+    const table = within(await screen.findByRole("table"));
+    expect(table.getByText("provider error (HTTP 503)")).toBeInTheDocument();
+    // named twice on purpose: once under the service name, once in the message
+    expect(table.getAllByText(/serving from OpenRouter/).length).toBeGreaterThan(0);
+  });
+
   it("CHECK SERVICES triggers a real forced re-probe", async () => {
     const healthy = MIXED.map((s) =>
       s.name === "n8n"

@@ -159,6 +159,16 @@ export function useAiMutations() {
   };
   return {
     save: useMutation({ mutationFn: (input: AiConfigUpdate) => aiApi.update(input), onSuccess: invalidate }),
+    /**
+     * Credentials only. Same endpoint, but the caller sends no `provider`, so
+     * giving the fallback a key cannot silently promote it to primary. It is a
+     * separate mutation so the two Save buttons have independent pending and
+     * error states.
+     */
+    saveCredentials: useMutation({
+      mutationFn: (input: AiConfigUpdate) => aiApi.update(input),
+      onSuccess: invalidate,
+    }),
     test: useMutation({
       mutationFn: (input: { provider?: AiProviderId; model?: string } = {}) => aiApi.test(input),
       onSuccess: invalidate,

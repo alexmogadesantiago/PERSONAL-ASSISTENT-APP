@@ -392,6 +392,21 @@ export interface AiHealth {
   error: string;
   cached: boolean;
   checked_at: string;
+  /** The last generation that actually fell back, if it was recent. */
+  last_fallback: AiFallbackEvent | null;
+}
+
+/**
+ * A generation that really was served by the fallback. Deliberately separate
+ * from health: a 429 ten minutes ago does not make the primary unreachable
+ * now, so it is reported alongside the status instead of folded into it.
+ */
+export interface AiFallbackEvent {
+  at: string;
+  age_seconds: number;
+  primary: string;
+  fallback: string;
+  reason: string;
 }
 
 /** The only response that ever carries the token itself - shown once. */

@@ -238,6 +238,17 @@ async def test_the_base_url_is_configuration_not_a_constant(monkeypatch):
 # ---------------------------------------------------------- error mapping ---
 
 
+#: every provider is held to the same taxonomy - the fallback decision depends
+#: on it, and a subclass could quietly override the mapping
+PROVIDER_CLASSES = [NvidiaNimProvider, OpenRouterProvider, GeminiProvider]
+ROUTE_FOR = {
+    NvidiaNimProvider: "/chat/completions",
+    OpenRouterProvider: "/chat/completions",
+    GeminiProvider: ":generateContent",
+}
+
+
+@pytest.mark.parametrize("cls", PROVIDER_CLASSES, ids=lambda c: c.id)
 @pytest.mark.parametrize(
     "status,expected,retryable",
     [
@@ -247,31 +258,46 @@ async def test_the_base_url_is_configuration_not_a_constant(monkeypatch):
         (404, AIBadRequest, False),
         (429, AIRateLimited, True),
         (500, AIUnavailable, True),
+        (502, AIUnavailable, True),
         (503, AIUnavailable, True),
+        (504, AIUnavailable, True),
     ],
 )
 async def test_status_codes_map_to_the_retryable_taxonomy(
-    monkeypatch, status, expected, retryable
+    monkeypatch, cls, status, expected, retryable
 ):
-    ai_stubs.install(monkeypatch, ai_stubs.routes({"/chat/completions": ai_stubs.error(status)}))
+    ai_stubs.install(monkeypatch, ai_stubs.routes({ROUTE_FOR[cls]: ai_stubs.error(status)}))
     with pytest.raises(expected) as excinfo:
-        await NvidiaNimProvider(api_key="k").generate(prompt())
+        await cls(api_key="k").generate(prompt())
     assert excinfo.value.retryable is retryable
     assert excinfo.value.status_code == status
+    assert excinfo.value.provider == cls.id
 
 
-async def test_a_timeout_is_retryable(monkeypatch):
-    ai_stubs.install(monkeypatch, ai_stubs.routes({"/chat/completions": ai_stubs.timeout}))
+@pytest.mark.parametrize("cls", PROVIDER_CLASSES, ids=lambda c: c.id)
+async def test_a_timeout_is_retryable(monkeypatch, cls):
+    ai_stubs.install(monkeypatch, ai_stubs.routes({ROUTE_FOR[cls]: ai_stubs.timeout}))
     with pytest.raises(AITimeout) as excinfo:
-        await NvidiaNimProvider(api_key="k").generate(prompt())
+        await cls(api_key="k").generate(prompt())
     assert excinfo.value.retryable is True
 
 
-async def test_a_connection_failure_is_retryable(monkeypatch):
-    ai_stubs.install(monkeypatch, ai_stubs.routes({"/chat/completions": ai_stubs.connect_error}))
+@pytest.mark.parametrize("cls", PROVIDER_CLASSES, ids=lambda c: c.id)
+async def test_a_connection_failure_is_retryable(monkeypatch, cls):
+    ai_stubs.install(monkeypatch, ai_stubs.routes({ROUTE_FOR[cls]: ai_stubs.connect_error}))
     with pytest.raises(AIUnavailable) as excinfo:
-        await NvidiaNimProvider(api_key="k").generate(prompt())
+        await cls(api_key="k").generate(prompt())
     assert excinfo.value.retryable is True
+
+
+@pytest.mark.parametrize("cls", PROVIDER_CLASSES, ids=lambda c: c.id)
+async def test_a_rejected_key_is_never_retryable(monkeypatch, cls):
+    """The single property the whole fallback policy rests on."""
+    ai_stubs.install(monkeypatch, ai_stubs.routes({ROUTE_FOR[cls]: ai_stubs.error(401)}))
+    with pytest.raises(AIAuthError) as excinfo:
+        await cls(api_key="wrong").generate(prompt())
+    assert excinfo.value.retryable is False
+    assert "wrong" not in str(excinfo.value), "the rejected key must not be echoed back"
 
 
 async def test_the_error_never_echoes_the_prompt_back(monkeypatch):

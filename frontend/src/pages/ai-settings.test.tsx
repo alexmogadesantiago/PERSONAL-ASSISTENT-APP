@@ -173,7 +173,7 @@ describe("AiSettingsCard", () => {
     expect(await screen.findByText(/Not every entry is available/i)).toBeInTheDocument();
   });
 
-  it("saves the provider, the model and the key in one request", async () => {
+  it("Save stores the selection and never touches a credential", async () => {
     const { calls } = stub({
       "PUT /api/ai/config": {
         body: config({ provider: "nvidia_nim", model: "meta/llama-3.3-70b-instruct", configured: true }),
@@ -182,7 +182,6 @@ describe("AiSettingsCard", () => {
     renderWithProviders(<AiSettingsCard canEdit />);
 
     await screen.findByRole("radiogroup", { name: /ai provider/i });
-    await userEvent.type(screen.getByLabelText(/provider key/i), "nvapi-my-key");
     await userEvent.click(screen.getByRole("button", { name: /save ai settings/i }));
 
     const put = await waitFor(() => {
@@ -192,9 +191,31 @@ describe("AiSettingsCard", () => {
     });
     const sent = JSON.parse(String(put.init?.body));
     expect(sent.provider).toBe("nvidia_nim");
-    expect(sent.credentials).toEqual([
-      { provider: "nvidia_nim", api_key: "nvapi-my-key", model: "meta/llama-3.3-70b-instruct" },
-    ]);
+    expect(sent).not.toHaveProperty("credentials");
+  });
+
+  it("Save key stores a credential and never changes which provider is primary", async () => {
+    // This is the whole point of splitting the two controls: giving the
+    // fallback a key must not promote it over the primary.
+    const { calls } = stub({
+      "GET /api/ai/config": { body: config({ provider: "nvidia_nim", configured: true }) },
+      "PUT /api/ai/config": { body: config({ provider: "nvidia_nim", configured: true }) },
+    });
+    renderWithProviders(<AiSettingsCard canEdit />);
+
+    await screen.findByRole("radiogroup", { name: /ai provider/i });
+    await userEvent.selectOptions(screen.getByLabelText(/^provider$/i), "openrouter");
+    await userEvent.type(screen.getByLabelText(/provider key/i), "sk-or-my-key");
+    await userEvent.click(screen.getByRole("button", { name: /save provider credentials/i }));
+
+    const put = await waitFor(() => {
+      const c = calls.find((x) => x.init?.method === "PUT");
+      expect(c).toBeTruthy();
+      return c!;
+    });
+    const sent = JSON.parse(String(put.init?.body));
+    expect(sent.credentials).toEqual([{ provider: "openrouter", api_key: "sk-or-my-key" }]);
+    expect(sent).not.toHaveProperty("provider");
   });
 
   it("an untouched key field means keep the stored key, not wipe it", async () => {
@@ -211,7 +232,7 @@ describe("AiSettingsCard", () => {
     renderWithProviders(<AiSettingsCard canEdit />);
 
     await screen.findByRole("radiogroup", { name: /ai provider/i });
-    await userEvent.click(screen.getByRole("button", { name: /save ai settings/i }));
+    await userEvent.click(screen.getByRole("button", { name: /save provider credentials/i }));
 
     const put = await waitFor(() => {
       const c = calls.find((x) => x.init?.method === "PUT");
@@ -220,6 +241,7 @@ describe("AiSettingsCard", () => {
     });
     const sent = JSON.parse(String(put.init?.body));
     expect(sent.credentials[0]).not.toHaveProperty("api_key");
+    expect(sent.credentials[0]).not.toHaveProperty("base_url");
   });
 
   it("never displays the stored key, only a hint", async () => {
@@ -370,7 +392,7 @@ describe("AiSettingsCard", () => {
     await userEvent.click(group.getByText("Gemini"));
 
     await waitFor(() =>
-      expect(screen.getByLabelText(/custom model id/i)).toHaveValue("gemini-2.5-flash"),
+      expect(screen.getByLabelText("Model — custom id")).toHaveValue("gemini-2.5-flash"),
     );
   });
 });
