@@ -115,7 +115,7 @@
     },
     {
       "parameters": {
-        "chatId": "8319148167",
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
         "text": "={{ $json.texto }}",
         "additionalFields": {
           "appendAttribution": false,
