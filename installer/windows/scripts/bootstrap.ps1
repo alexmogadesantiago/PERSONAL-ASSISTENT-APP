@@ -86,7 +86,12 @@ if (-not $SkipEnvironmentPrep -and (-not $report.docker.installed -or -not $repo
 
 # --- 4. Despliegue (reutiliza installer/install.ps1) -----------------
 Write-ApStep 'Desplegando Personal Assistant'
-$deployArgs = @('-NoProfile','-ExecutionPolicy','Bypass','-File', (Join-Path $RepoRoot 'installer\install.ps1'))
+# La ruta va ENTRECOMILLADA: el directorio de instalacion se llama
+# "Personal Assistant" y Start-Process no entrecomilla los elementos del
+# array que llevan espacios, asi que -File recibiria solo
+# ...\Programs\Personal y PowerShell fallaria antes de arrancar nada.
+$deployScript = Join-Path $RepoRoot 'installer\install.ps1'
+$deployArgs = @('-NoProfile','-ExecutionPolicy','Bypass','-File', "`"$deployScript`"")
 # Siempre desatendido: ni el instalador ni el bootstrap abren un dialogo de
 # consola. Lo que falte se configura luego desde el launcher o el panel.
 $deployArgs += '-Unattended'

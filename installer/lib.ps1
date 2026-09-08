@@ -168,6 +168,17 @@ function Initialize-ApUserConfig {
     if (Test-Path $previous)     { Copy-Item $previous $profileDst -Force }
     elseif (Test-Path $example)  { Copy-Item $example  $profileDst -Force }
   }
+
+  # Lo mismo con los borradores que generaron los workflows: en el layout
+  # anterior vivian en <codigo>\output y n8n los escribia ahi. Si el directorio
+  # de datos aun no tiene ninguno, se traen; si ya hay, no se toca nada.
+  $srcOut = Join-Path $AppRoot 'output'
+  if (Test-Path $srcOut) {
+    $already = @(Get-ChildItem $script:AP_OUTPUT -Recurse -File -ErrorAction SilentlyContinue).Count
+    if ($already -eq 0) {
+      Copy-Item (Join-Path $srcOut '*') $script:AP_OUTPUT -Recurse -Force -ErrorAction SilentlyContinue
+    }
+  }
 }
 
 # --- Logging (nunca imprime secretos) -------------------------------------

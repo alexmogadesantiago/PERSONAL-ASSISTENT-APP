@@ -161,18 +161,11 @@ Filename: "{#PwShell}"; \
   StatusMsg: "Preparando el entorno: WSL2, Docker, base de datos, n8n, Playwright y el panel. La primera vez descarga varios GB y puede tardar 15-25 minutos..."; \
   Tasks: runsetup; Check: not WizardSilent
 
-[UninstallRun]
-; Interactivo: pregunta (MessageBox) qué hacer con los datos.
-Filename: "{#PwShell}"; \
-  Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\installer\windows\scripts\uninstall.ps1"" -Mode Ask"; \
-  RunOnceId: "PersonalAssistantUninstall"; Flags: runascurrentuser waituntilterminated; \
-  Check: not UninstallSilent
-; Silencioso: conserva los datos (nunca borra en silencio).
-Filename: "{#PwShell}"; \
-  Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\installer\windows\scripts\uninstall.ps1"" -Mode KeepData -Silent"; \
-  RunOnceId: "PersonalAssistantUninstallSilent"; Flags: runascurrentuser waituntilterminated; \
-  Check: UninstallSilent
-
+; La pregunta sobre los datos NO se hace desde [UninstallRun]: en la practica
+; esas entradas no llegaron a ejecutarse (el log del desinstalador pasa
+; directo a borrar registro y ficheros, sin un solo "Running Exec"). Se hace
+; desde CurUninstallStepChanged, en [Code], que si corre y ademas lo hace
+; ANTES de borrar los ficheros del script.
 [Code]
 var
   GNeedRestart: Boolean;
@@ -245,4 +238,25 @@ var
 begin
   Result := GNeedRestart or
     RegQueryStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\RunOnce', 'PersonalAssistantSetupResume', Dummy);
+end;
+
+// --- Desinstalacion: preguntar SIEMPRE que hacer con los datos ---------
+// usUninstall se ejecuta antes de borrar ficheros, asi que uninstall.ps1
+// todavia existe. En modo silencioso se CONSERVAN los datos: nunca se borra
+// nada del usuario sin que lo haya pedido explicitamente.
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  RC: Integer;
+  Mode, Script: String;
+begin
+  if CurUninstallStep <> usUninstall then exit;
+  Script := ExpandConstant('{app}\installer\windows\scripts\uninstall.ps1');
+  if not FileExists(Script) then exit;
+  if UninstallSilent then
+    Mode := '-Mode KeepData -Silent'
+  else
+    Mode := '-Mode Ask';
+  Exec(ExpandConstant('{#PwShell}'),
+    '-NoProfile -ExecutionPolicy Bypass -File "' + Script + '" ' + Mode,
+    '', SW_HIDE, ewWaitUntilTerminated, RC);
 end;

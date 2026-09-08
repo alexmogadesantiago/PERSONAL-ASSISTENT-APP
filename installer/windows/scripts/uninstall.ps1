@@ -43,19 +43,28 @@ if ($Mode -eq 'Ask') {
 
 Write-ApLog -Level STEP -Message "Desinstalando Personal Assistant (modo: $Mode)"
 
-# Bandeja
-Get-Process powershell -ErrorAction SilentlyContinue |
-  Where-Object { $_.Path -and (Get-CimInstance Win32_Process -Filter "ProcessId=$($_.Id)").CommandLine -match 'tray\.ps1' } |
-  ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+# Bandeja: se cierra el proceso que esta ejecutando tray.ps1. Envuelto en
+# try/catch porque consultar la linea de comandos de un proceso ajeno puede
+# fallar por permisos, y eso no debe impedir desinstalar.
+try {
+  Get-Process powershell -ErrorAction SilentlyContinue |
+    Where-Object { $_.Path -and (Get-CimInstance Win32_Process -Filter "ProcessId=$($_.Id)" -ErrorAction SilentlyContinue).CommandLine -match 'tray\.ps1' } |
+    ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+} catch { }
 
 # Arranque automático (tarea programada + RunOnce)
 foreach ($t in @('PersonalAssistant','AutomationPlatform','AutomationCenter')) {
-  schtasks.exe /Delete /TN $t /F 2>$null | Out-Null
+  # A traves de cmd. schtasks devuelve error cuando la tarea no existe y, con
+  # $ErrorActionPreference = 'Stop' (lo fija lib.ps1), ese stderr se convierte
+  # en NativeCommandError y aborta la desinstalacion antes de parar nada. De
+  # los tres nombres, dos no existen casi nunca: es el caso normal.
+  & $env:ComSpec /c "schtasks.exe /Delete /TN $t /F >nul 2>&1" | Out-Null
 }
 Remove-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\RunOnce' -Name 'PersonalAssistantSetupResume' -ErrorAction SilentlyContinue
 
 # Contenedores / volúmenes (reutiliza el desinstalador base)
-$dArgs = @('-NoProfile','-ExecutionPolicy','Bypass','-File', (Join-Path $RepoRoot 'installer\uninstall.ps1'), '-Yes')
+$uninstallScript = Join-Path $RepoRoot 'installer\uninstall.ps1'
+$dArgs = @('-NoProfile','-ExecutionPolicy','Bypass','-File', "`"$uninstallScript`"", '-Yes')
 if ($Mode -eq 'PurgeData') { $dArgs += '-PurgeData' }
 $p = Start-Process powershell.exe -ArgumentList $dArgs -Wait -PassThru -NoNewWindow
 

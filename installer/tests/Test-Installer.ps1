@@ -332,6 +332,95 @@ Assert-Contains -Haystack $bootstrapRaw -Needle 'install-docker.ps1' `
 Assert-Contains -Haystack $bootstrapRaw -Needle 'exit 10' `
   -Name 'un reinicio necesario se comunica con un codigo propio, no como fallo'
 
+# --- 9d. Rutas con espacios ("Personal Assistant") ------------------------
+Write-Host ''
+Write-Host '=== Rutas con espacios ===' -ForegroundColor Cyan
+
+# El directorio de instalacion se llama "Personal Assistant" y el de datos
+# tambien. Start-Process NO entrecomilla los elementos del array que pasa a
+# -ArgumentList, asi que un `-File`, $ruta sin comillas llega partido por el
+# espacio y PowerShell aborta con "el archivo no tiene la extension '.ps1'".
+# Esto rompio el despliegue en la primera instalacion real.
+$spaceOffenders = @()
+# Se excluye este mismo fichero: contiene "-File" dentro de las expresiones
+# regulares de la comprobacion.
+$scanned = Get-ChildItem (Join-Path $RepoRoot 'installer') -Recurse -Filter *.ps1 |
+           Where-Object { $_.FullName -notlike '*\tests\*' }
+foreach ($f in $scanned) {
+  $n = 0
+  foreach ($line in (Get-Content $f.FullName)) {
+    $n++
+    if ($line -notmatch "'-File'") { continue }
+    # Aceptable: el valor siguiente empieza por una comilla escapada (`") o es
+    # una cadena entrecomillada.
+    if ($line -match "'-File'\s*,\s*[`"]``[`"]") { continue }
+    if ($line -match "'-File'\s*,\s*\`$\w+\s*\)" -and $line -match '``"') { continue }
+    $spaceOffenders += ("{0}:{1}" -f $f.Name, $n)
+  }
+}
+Assert-True -Condition ($spaceOffenders.Count -eq 0) `
+  -Name 'toda ruta pasada a -File va entrecomillada (soporta espacios)' `
+  -Detail ($spaceOffenders -join '; ')
+
+# Los accesos directos del .iss tambien: alli las comillas se duplican ("").
+$issRaw2 = Get-Content (Join-Path $RepoRoot 'installer\windows\PersonalAssistant.iss') -Raw
+Assert-True -Condition ($issRaw2 -notmatch '-File \{#ScriptsDir\}') `
+  -Name 'los accesos directos entrecomillan la ruta del script'
+
+# --- 9e. Comandos nativos que "fallan" siendo normal ----------------------
+Write-Host ''
+Write-Host '=== Comandos nativos y $ErrorActionPreference ===' -ForegroundColor Cyan
+
+# lib.ps1 fija $ErrorActionPreference = 'Stop'. En Windows PowerShell 5.1, el
+# stderr de un ejecutable nativo se convierte entonces en NativeCommandError y
+# aborta el script. schtasks escribe en stderr cuando la tarea a borrar no
+# existe, que es el caso NORMAL: esto tumbo primero la instalacion (al registrar
+# el arranque automatico) y luego la desinstalacion (antes de parar nada).
+$nativeOffenders = @()
+foreach ($f in $scanned) {
+  $n = 0
+  foreach ($line in (Get-Content $f.FullName)) {
+    $n++
+    if ($line -notmatch 'schtasks\.exe') { continue }
+    if ($line -match '\$env:ComSpec') { continue }   # envuelto en cmd: seguro
+    if ($line.TrimStart().StartsWith('#')) { continue }
+    $nativeOffenders += ("{0}:{1}" -f $f.Name, $n)
+  }
+}
+Assert-True -Condition ($nativeOffenders.Count -eq 0) `
+  -Name 'schtasks se invoca a traves de cmd (su stderr no aborta el script)' `
+  -Detail ($nativeOffenders -join '; ')
+
+# --- 9f. Desinstalacion ---------------------------------------------------
+Write-Host ''
+Write-Host '=== Desinstalacion ===' -ForegroundColor Cyan
+
+$issUn = Get-Content (Join-Path $RepoRoot 'installer\windows\PersonalAssistant.iss') -Raw
+# [UninstallRun] no llegaba a ejecutarse; la pregunta vive en [Code].
+Assert-Contains -Haystack $issUn -Needle 'procedure CurUninstallStepChanged' `
+  -Name 'la desinstalacion ejecuta su script desde [Code] (usUninstall)'
+Assert-True -Condition ($issUn -notmatch '(?m)^\[UninstallRun\]') `
+  -Name 'no se depende de [UninstallRun], que no se ejecutaba'
+Assert-Contains -Haystack $issUn -Needle "Mode := '-Mode Ask'" `
+  -Name 'una desinstalacion interactiva PREGUNTA que hacer con los datos'
+Assert-Contains -Haystack $issUn -Needle "Mode := '-Mode KeepData -Silent'" `
+  -Name 'una desinstalacion silenciosa CONSERVA los datos'
+
+$unRaw = Get-Content (Join-Path $RepoRoot 'installer\windows\scripts\uninstall.ps1') -Raw
+Assert-Contains -Haystack $unRaw -Needle 'MessageBoxButtons]::YesNoCancel' `
+  -Name 'el dialogo ofrece conservar, borrar o cancelar'
+Assert-Contains -Haystack $unRaw -Needle "if (`$Silent) { `$Mode = 'KeepData' }" `
+  -Name 'sin interfaz disponible, el modo por defecto es conservar'
+# PurgeData solo debe llegar por eleccion explicita, nunca por omision.
+Assert-True -Condition ($unRaw -notmatch "(?m)^\s*\`$Mode\s*=\s*'PurgeData'\s*$") `
+  -Name 'nunca se selecciona PurgeData por defecto'
+
+# El instalador no debe generar credenciales nuevas sobre una BD que ya existe.
+Assert-Contains -Haystack $installRaw -Needle 'personal-assistant_postgres_data' `
+  -Name 'el instalador detecta una base de datos de una instalacion anterior'
+Assert-Contains -Haystack $installRaw -Needle 'BLOCKED BY: ya existe una base de datos' `
+  -Name 'y lo dice antes de construir imagenes durante 20 minutos'
+
 # --- 10. Logs --------------------------------------------------------------
 Write-Host ''
 Write-Host '=== Logs ===' -ForegroundColor Cyan

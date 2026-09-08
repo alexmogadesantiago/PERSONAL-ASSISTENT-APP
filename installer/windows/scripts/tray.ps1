@@ -40,7 +40,7 @@ $bPort = if ($envMap.ContainsKey('BACKEND_PORT')  -and $envMap['BACKEND_PORT']) 
 function Start-Ctl([string]$Action) {
   Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @(
     '-NoProfile','-WindowStyle','Hidden','-ExecutionPolicy','Bypass',
-    '-File',(Join-Path $scriptsDir 'control.ps1'),$Action)
+    '-File',"`"$(Join-Path $scriptsDir 'control.ps1')`"",$Action)
 }
 
 # El launcher se abre por el mismo camino que el acceso directo del menu
@@ -52,7 +52,7 @@ function Open-Launcher {
     Start-Process 'wscript.exe' -ArgumentList @("`"$vbs`"", "`"$ps`"")
   } else {
     Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @(
-      '-NoProfile','-WindowStyle','Hidden','-ExecutionPolicy','Bypass','-File',$ps)
+      '-NoProfile','-WindowStyle','Hidden','-ExecutionPolicy','Bypass','-File',"`"$ps`"")
   }
 }
 
@@ -81,7 +81,7 @@ $menu.Items.Add('Ver logs',      $null, {
   # control.ps1 logs vuelca los logs de los contenedores a la carpeta y la abre.
   Start-Ctl 'logs' }) | Out-Null
 $menu.Items.Add('Copia de seguridad', $null, {
-  Start-Process powershell.exe -ArgumentList @('-NoExit','-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $scriptsDir 'backup.ps1')) }) | Out-Null
+  Start-Process powershell.exe -ArgumentList @('-NoExit','-NoProfile','-ExecutionPolicy','Bypass','-File',"`"$(Join-Path $scriptsDir 'backup.ps1')`"") }) | Out-Null
 $menu.Items.Add('-') | Out-Null
 $menu.Items.Add('Salir',         $null, { $ni.Visible = $false; [System.Windows.Forms.Application]::Exit() }) | Out-Null
 $ni.ContextMenuStrip = $menu

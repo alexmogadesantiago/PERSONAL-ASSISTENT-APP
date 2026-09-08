@@ -229,6 +229,25 @@ if ($needEnv) {
   Write-ApOk '.env ya existe (usa -Reconfigure para regenerarlo)'
 }
 
+# --- 4a. Coherencia con un volumen de Postgres preexistente -----------
+# El volumen de datos de Postgres guarda la contrasena con la que se creo. Si
+# aqui se acaba de generar un .env NUEVO y ese volumen ya existe (tipico al
+# instalar el .exe en una maquina donde el stack ya corria desde un clon del
+# repositorio), la contrasena no coincidira y el backend no podra conectarse.
+# Mejor decirlo ahora que construir imagenes 20 minutos y dejar un stack roto.
+if ($needEnv) {
+  $volName = "personal-assistant_postgres_data"
+  $dockerQ  = '"' + $DockerExe + '"'
+  $volFound = & $env:ComSpec /c "$dockerQ volume inspect $volName >nul 2>&1 && echo SI"
+  if ("$volFound".Trim() -eq 'SI') {
+    Write-ApLog -Level ERROR -Message 'BLOCKED BY: ya existe una base de datos de una instalacion anterior'
+    Write-ApLog -Level ERROR -Message ('El volumen ' + $volName + ' guarda la contrasena antigua, y este .env se acaba de generar con una nueva.')
+    Write-ApLog -Level ERROR -Message ('Elige una: (a) copia tu .env anterior a ' + $envPath + ' y vuelve a ejecutar la instalacion,')
+    Write-ApLog -Level ERROR -Message ('o (b) si quieres empezar de cero, borra el volumen: docker volume rm ' + $volName + ' (SE PIERDEN LOS DATOS).')
+    exit 2
+  }
+}
+
 # --- 4b. RUTAS DE DATOS EN EL .env -----------------------------------
 # docker-compose lee PA_CONFIG_DIR / PA_OUTPUT_DIR para los dos unicos montajes
 # con escritura. Se reescriben SIEMPRE (tambien al actualizar): si el .env viene
@@ -350,7 +369,11 @@ $taskName = 'PersonalAssistant'
 # Nombres que uso la tarea en versiones anteriores: se retiran para que una
 # actualizacion no deje dos tareas arrancando el mismo stack.
 foreach ($oldTask in @('AutomationPlatform','AutomationCenter')) {
-  & schtasks.exe /Delete /TN $oldTask /F 2>&1 | Out-Null
+  # A traves de cmd: schtasks devuelve error cuando la tarea no existe, y con
+  # $ErrorActionPreference = 'Stop' ese stderr se convierte en excepcion
+  # (NativeCommandError) que aborta toda la instalacion. Aqui "no habia nada
+  # que borrar" es el caso normal, no un fallo.
+  & $env:ComSpec /c "schtasks.exe /Delete /TN $oldTask /F >nul 2>&1" | Out-Null
 }
 $autostart = $false
 # La tarea arranca el stack llamando a control.ps1, el mismo camino que el
@@ -374,7 +397,7 @@ try {
   # fallback: schtasks.exe (más permisivo con usuarios sin privilegios)
   try {
     $tr = 'powershell.exe ' + $autostartPs
-    & schtasks.exe /Create /TN $taskName /TR $tr /SC ONLOGON /RL LIMITED /F 2>&1 | Out-Null
+    & $env:ComSpec /c "schtasks.exe /Create /TN $taskName /TR ""$tr"" /SC ONLOGON /RL LIMITED /F >nul 2>&1" | Out-Null
     if ($LASTEXITCODE -eq 0) { $autostart = $true }
   } catch { }
 }
