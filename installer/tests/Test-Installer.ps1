@@ -265,7 +265,46 @@ Assert-Contains -Haystack $issRunRaw -Needle "Result := '-Unattended';" `
 Assert-Contains -Haystack $commonRaw -Needle 'RunOnce' `
   -Name 'se conserva la reanudacion automatica tras el reinicio (RunOnce)'
 
-# --- 10. Identidad del producto -------------------------------------------
+# --- 10. Launcher de escritorio -------------------------------------------
+Write-Host ''
+Write-Host '=== Launcher ===' -ForegroundColor Cyan
+
+$launcherPath = Join-Path $RepoRoot 'installer\windows\scripts\launcher.ps1'
+Assert-True -Condition (Test-Path $launcherPath) -Name 'existe el launcher'
+if (Test-Path $launcherPath) {
+  $lr = Get-Content $launcherPath -Raw
+  # El requisito es reutilizar la monitorizacion que ya existe, no reescribirla:
+  # el estado sale de services_probe a traves de la API del backend.
+  Assert-Contains -Haystack $lr -Needle '/api/system/status' `
+    -Name 'el launcher lee el estado de services_probe (/api/system/status)'
+  Assert-Contains -Haystack $lr -Needle '/api/health' `
+    -Name 'el launcher usa el health check del backend'
+  Assert-Contains -Haystack $lr -Needle 'control.ps1' `
+    -Name 'las acciones del launcher delegan en control.ps1'
+  # Sondas propias duplicadas = la ventana y el panel podrian discrepar.
+  Assert-True -Condition ($lr -notmatch 'pg_isready|psql -|Invoke-ApPsql') `
+    -Name 'el launcher no reimplementa las sondas de servicio'
+  # Un secreto no puede acabar en el log ni en un control de la interfaz.
+  Assert-True -Condition ($lr -notmatch '(?m)Write-ApLog.*\$Values\[') `
+    -Name 'el launcher nunca registra el valor de una credencial'
+  Assert-Contains -Haystack $lr -Needle 'UseSystemPasswordChar' `
+    -Name 'los tokens se escriben enmascarados'
+  # WinForms de .NET Framework (Windows PowerShell 5.1) no tiene PlaceholderText:
+  # se busca el USO de la propiedad, no la palabra en un comentario.
+  Assert-True -Condition ($lr -notmatch '\.PlaceholderText\s*=') `
+    -Name 'no se usan propiedades de WinForms que no existen en PowerShell 5.1'
+}
+
+$vbsPath = Join-Path $RepoRoot 'installer\windows\scripts\hidden.vbs'
+Assert-True -Condition (Test-Path $vbsPath) -Name 'existe el shim que evita el parpadeo de consola'
+
+$issIcons = Get-Content (Join-Path $RepoRoot 'installer\windows\PersonalAssistant.iss') -Raw
+Assert-Contains -Haystack $issIcons -Needle 'hidden.vbs"" ""{#ScriptsDir}\launcher.ps1' `
+  -Name 'el acceso directo principal abre el launcher sin consola'
+Assert-Contains -Haystack $issIcons -Needle 'scripts\*.vbs' `
+  -Name 'el instalador empaqueta el shim .vbs'
+
+# --- 11. Identidad del producto -------------------------------------------
 Write-Host ''
 Write-Host '=== Producto: Personal Assistant ===' -ForegroundColor Cyan
 

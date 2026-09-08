@@ -117,13 +117,22 @@ Source: "{#RepoRoot}\installer\lib.ps1";               DestDir: "{app}\installer
 Source: "{#RepoRoot}\installer\install.ps1";           DestDir: "{app}\installer"; Flags: ignoreversion
 Source: "{#RepoRoot}\installer\uninstall.ps1";         DestDir: "{app}\installer"; Flags: ignoreversion
 Source: "{#RepoRoot}\installer\windows\scripts\*.ps1"; DestDir: "{app}\installer\windows\scripts"; Flags: ignoreversion
+Source: "{#RepoRoot}\installer\windows\scripts\*.vbs"; DestDir: "{app}\installer\windows\scripts"; Flags: ignoreversion
 Source: "{#RepoRoot}\installer\windows\assets\*";      DestDir: "{app}\installer\windows\assets"; Flags: ignoreversion
 
 ; --- documentacion de usuario ---
 Source: "{#RepoRoot}\docs\*.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\Personal Assistant";        Filename: "{#PwShell}"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{#ScriptsDir}\control.ps1"" open"; IconFilename: "{app}\installer\windows\assets\personal-assistant.ico"; Comment: "Abrir el panel de Personal Assistant"
+; El acceso directo principal abre el LAUNCHER (ventana de estado + control),
+; no directamente el navegador: es lo que convierte esto en una aplicacion de
+; escritorio y no en "una URL que hay que recordar".
+;
+; Se lanza con wscript + hidden.vbs porque powershell.exe -WindowStyle Hidden
+; crea la consola y la oculta despues: se ve un parpadeo negro. hidden.vbs la
+; crea ya oculta.
+Name: "{group}\Personal Assistant";        Filename: "{sys}\wscript.exe"; Parameters: """{#ScriptsDir}\hidden.vbs"" ""{#ScriptsDir}\launcher.ps1"""; IconFilename: "{app}\installer\windows\assets\personal-assistant.ico"; Comment: "Abrir Personal Assistant"
+Name: "{group}\Abrir el panel web";       Filename: "{#PwShell}"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{#ScriptsDir}\control.ps1"" open"
 Name: "{group}\Iniciar";                  Filename: "{#PwShell}"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{#ScriptsDir}\control.ps1"" start"
 Name: "{group}\Parar";                    Filename: "{#PwShell}"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{#ScriptsDir}\control.ps1"" stop"
 Name: "{group}\Reiniciar";                Filename: "{#PwShell}"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{#ScriptsDir}\control.ps1"" restart"
@@ -132,8 +141,8 @@ Name: "{group}\Ver logs";                 Filename: "{#PwShell}"; Parameters: "-
 Name: "{group}\Copia de seguridad";       Filename: "{#PwShell}"; Parameters: "-NoExit -NoProfile -ExecutionPolicy Bypass -File ""{#ScriptsDir}\backup.ps1"""
 Name: "{group}\Volver a ejecutar la instalación"; Filename: "{#PwShell}"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{#ScriptsDir}\bootstrap.ps1"""
 Name: "{group}\{cm:UninstallProgram,Personal Assistant}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\Personal Assistant";  Filename: "{#PwShell}"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{#ScriptsDir}\control.ps1"" open"; IconFilename: "{app}\installer\windows\assets\personal-assistant.ico"; Tasks: desktopicon
-Name: "{userstartup}\Personal Assistant Tray"; Filename: "{#PwShell}"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{#ScriptsDir}\tray.ps1"""; Tasks: trayautostart
+Name: "{autodesktop}\Personal Assistant";  Filename: "{sys}\wscript.exe"; Parameters: """{#ScriptsDir}\hidden.vbs"" ""{#ScriptsDir}\launcher.ps1"""; IconFilename: "{app}\installer\windows\assets\personal-assistant.ico"; Tasks: desktopicon
+Name: "{userstartup}\Personal Assistant Tray"; Filename: "{sys}\wscript.exe"; Parameters: """{#ScriptsDir}\hidden.vbs"" ""{#ScriptsDir}\tray.ps1"""; Tasks: trayautostart
 
 [Registry]
 Root: HKCU; Subkey: "Software\Personal Assistant"; ValueType: string; ValueName: "Version";    ValueData: "{#AppVersion}"; Flags: uninsdeletekey

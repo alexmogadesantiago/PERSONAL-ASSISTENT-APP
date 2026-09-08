@@ -76,14 +76,29 @@ function Initialize-ApHome {
 
   $migrate = (-not (Test-Path $script:AP_DATA_HOME)) -and (Test-Path $script:AP_LEGACY_HOME) -and
              ($script:AP_DATA_HOME -ne $script:AP_LEGACY_HOME)
+  $migrationLeftover = $false
   if ($migrate) {
     # v0.4.x guardaba estado, log y backups en %LOCALAPPDATA%\AutomationPlatform.
-    # Se mueve entero para no perder las copias de seguridad del usuario.
+    # Se traslada entero para no perder las copias de seguridad del usuario.
+    $moved = $false
     try {
       Move-Item $script:AP_LEGACY_HOME $script:AP_DATA_HOME -Force -ErrorAction Stop
+      $moved = $true
     } catch {
-      Copy-Item $script:AP_LEGACY_HOME $script:AP_DATA_HOME -Recurse -Force -ErrorAction SilentlyContinue
+      # Un Move-Item puede fallar a medias: los ficheros que escribio un
+      # contenedor (los .tgz de los backups) a veces no se dejan mover. Se
+      # copia lo que quede y solo se borra el origen si el destino tiene al
+      # menos tantos ficheros: nunca se destruye lo unico que hay.
+      New-Item -ItemType Directory -Force -Path $script:AP_DATA_HOME | Out-Null
+      Copy-Item (Join-Path $script:AP_LEGACY_HOME '*') $script:AP_DATA_HOME -Recurse -Force -ErrorAction SilentlyContinue
+      $src = @(Get-ChildItem $script:AP_LEGACY_HOME -Recurse -File -Force -ErrorAction SilentlyContinue).Count
+      $dst = @(Get-ChildItem $script:AP_DATA_HOME  -Recurse -File -Force -ErrorAction SilentlyContinue).Count
+      if ($dst -ge $src) {
+        Remove-Item $script:AP_LEGACY_HOME -Recurse -Force -ErrorAction SilentlyContinue
+      }
+      $moved = ($dst -ge $src)
     }
+    if (-not $moved -or (Test-Path $script:AP_LEGACY_HOME)) { $migrationLeftover = $true }
   }
 
   foreach ($d in @($script:AP_DATA_HOME, $script:AP_CONFIG, $script:AP_DATA, $script:AP_OUTPUT,
@@ -99,6 +114,16 @@ function Initialize-ApHome {
     if ((Test-Path $mv.from) -and -not (Test-Path $mv.to)) {
       Move-Item $mv.from $mv.to -Force -ErrorAction SilentlyContinue
     }
+  }
+
+  # Si algo del directorio antiguo se resistio, se deja constancia en el log en
+  # vez de borrarlo a la brava. Se escribe directo al fichero: Write-ApLog
+  # llama a esta misma funcion.
+  if ($migrationLeftover) {
+    Add-Content -Path $script:AP_LOG -Encoding utf8 -Value (
+      ('{0} [WARN ] installer    Quedan ficheros en el directorio de datos antiguo ' +
+       '({1}). Ya estan copiados en el nuevo; puedes borrar el antiguo a mano.') -f
+      (Get-Date -Format 'yyyy-MM-ddTHH:mm:ss'), $script:AP_LEGACY_HOME)
   }
 
   $readme = Join-Path $script:AP_DATA 'README.txt'
