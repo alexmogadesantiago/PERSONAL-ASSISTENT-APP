@@ -1,6 +1,6 @@
 #!/bin/sh
 # ============================================================================
-#  Automation Platform - instalador para Linux x64/ARM64 y Raspberry Pi ARM64
+#  Personal Assistant - instalador para Linux x64/ARM64 y Raspberry Pi ARM64
 #  Uso:  ./installer/install.sh [--unattended] [--config FILE] [--reconfigure]
 #                               [--force] [--no-browser]
 #  Los secretos, en modo --unattended, se leen de variables de entorno o de
@@ -28,7 +28,7 @@ while [ $# -gt 0 ]; do
 done
 
 ap_init_home
-ap_log "Automation Platform installer v$VERSION" STEP
+ap_log "Personal Assistant installer v$VERSION" STEP
 [ "$FORCE" = "1" ] || { _st="$(ap_get_state)"; [ -n "$_st" ] && ap_warn "Reanudando: último paso = '$_st'"; }
 
 rand_secret() { head -c 48 /dev/urandom | LC_ALL=C tr -dc 'A-Za-z0-9' | head -c 48; }
@@ -205,7 +205,7 @@ if [ "$AP_HAS_SYSTEMD" = "1" ]; then
   mkdir -p "$UNIT_DIR"
   cat > "$UNIT_DIR/automation-platform.service" <<UNIT
 [Unit]
-Description=Automation Platform (docker compose)
+Description=Personal Assistant (docker compose)
 Requires=docker.service
 After=docker.service network-online.target
 

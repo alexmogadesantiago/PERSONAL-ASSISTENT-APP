@@ -1,43 +1,50 @@
 ; ===========================================================================
-;  Automation Center - instalador Windows (Inno Setup 6)
-;  Produce: AutomationCenter-Setup.exe
+;  Personal Assistant - instalador Windows (Inno Setup 6)
+;  Produce: Personal-Assistant-Setup.exe
 ;
 ;  Compilar:
-;     ISCC.exe /DAppVersion=0.4.0 installer\windows\AutomationCenter.iss
+;     ISCC.exe /DAppVersion=0.4.0 installer\windows\PersonalAssistant.iss
 ;  (build\build-exe.ps1 lee VERSION y pasa /DAppVersion automáticamente.)
 ;
-;  El .exe empaqueta TODO el repositorio (docker-compose + backend + frontend +
-;  workflows + scripts) y, tras copiar los ficheros, ejecuta
+;  El .exe empaqueta la LISTA BLANCA de [Files] (docker-compose + los cuatro
+;  contextos de build + workflows + scripts; nunca .env, *.pem, .claude ni
+;  worktrees) y, tras copiar los ficheros, ejecuta
 ;  installer\windows\scripts\bootstrap.ps1  (DETECTA -> WSL2 -> DOCKER ->
 ;  DESPLIEGA -> HEALTH CHECKS). No hay lógica de negocio en este .iss.
+;
+;  Los datos del usuario NO se instalan aquí: viven en
+;  %LOCALAPPDATA%\Personal Assistant (ver installer\lib.ps1).
 ; ===========================================================================
 
 #ifndef AppVersion
   #define AppVersion "0.0.0-dev"
 #endif
-#define AppName "Automation Center"
-#define AppPublisher "Automation Center"
+#define AppName "Personal Assistant"
+#define AppPublisher "Personal Assistant"
 #define RepoRoot "..\.."
 #define ScriptsDir "{app}\installer\windows\scripts"
 #define PwShell "{sys}\WindowsPowerShell\v1.0\powershell.exe"
 
 [Setup]
+; El AppId NO cambia al renombrar el producto: es su identidad para Windows.
+; Cambiarlo dejaria huerfana la entrada de "Agregar o quitar programas" de la
+; version anterior y la nueva instalacion no se reconoceria como actualizacion.
 AppId={{7F1C4E9A-3B2D-4A56-9E10-AC0DEC0DE001}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppVerName={#AppName} {#AppVersion}
 AppPublisher={#AppPublisher}
-DefaultDirName={autopf}\Automation Center
-DefaultGroupName=Automation Center
+DefaultDirName={autopf}\Personal Assistant
+DefaultGroupName=Personal Assistant
 DisableProgramGroupPage=yes
 AllowNoIcons=yes
 OutputDir={#RepoRoot}\dist
-OutputBaseFilename=AutomationCenter-Setup
+OutputBaseFilename=Personal-Assistant-Setup
 ; Lista de TODO lo que entra en el .exe. build\verify-package.ps1 la audita
 ; (ningun *.pem, .claude\, worktree, .venv ni web.py puede aparecer aqui).
 OutputManifestFile=Setup-Manifest.txt
-SetupIconFile=assets\automation-center.ico
-UninstallDisplayIcon={app}\installer\windows\assets\automation-center.ico
+SetupIconFile=assets\personal-assistant.ico
+UninstallDisplayIcon={app}\installer\windows\assets\personal-assistant.ico
 UninstallDisplayName={#AppName}
 Compression=lzma2/max
 SolidCompression=yes
@@ -116,7 +123,7 @@ Source: "{#RepoRoot}\installer\windows\assets\*";      DestDir: "{app}\installer
 Source: "{#RepoRoot}\docs\*.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\Automation Center";        Filename: "{#PwShell}"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{#ScriptsDir}\control.ps1"" open"; IconFilename: "{app}\installer\windows\assets\automation-center.ico"; Comment: "Abrir el panel de Automation Center"
+Name: "{group}\Personal Assistant";        Filename: "{#PwShell}"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{#ScriptsDir}\control.ps1"" open"; IconFilename: "{app}\installer\windows\assets\personal-assistant.ico"; Comment: "Abrir el panel de Personal Assistant"
 Name: "{group}\Iniciar";                  Filename: "{#PwShell}"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{#ScriptsDir}\control.ps1"" start"
 Name: "{group}\Parar";                    Filename: "{#PwShell}"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{#ScriptsDir}\control.ps1"" stop"
 Name: "{group}\Reiniciar";                Filename: "{#PwShell}"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{#ScriptsDir}\control.ps1"" restart"
@@ -124,13 +131,15 @@ Name: "{group}\Estado";                   Filename: "{#PwShell}"; Parameters: "-
 Name: "{group}\Ver logs";                 Filename: "{#PwShell}"; Parameters: "-NoExit -NoProfile -ExecutionPolicy Bypass -File ""{#ScriptsDir}\control.ps1"" logs"
 Name: "{group}\Copia de seguridad";       Filename: "{#PwShell}"; Parameters: "-NoExit -NoProfile -ExecutionPolicy Bypass -File ""{#ScriptsDir}\backup.ps1"""
 Name: "{group}\Volver a ejecutar la instalación"; Filename: "{#PwShell}"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{#ScriptsDir}\bootstrap.ps1"""
-Name: "{group}\{cm:UninstallProgram,Automation Center}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\Automation Center";  Filename: "{#PwShell}"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{#ScriptsDir}\control.ps1"" open"; IconFilename: "{app}\installer\windows\assets\automation-center.ico"; Tasks: desktopicon
-Name: "{userstartup}\Automation Center Tray"; Filename: "{#PwShell}"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{#ScriptsDir}\tray.ps1"""; Tasks: trayautostart
+Name: "{group}\{cm:UninstallProgram,Personal Assistant}"; Filename: "{uninstallexe}"
+Name: "{autodesktop}\Personal Assistant";  Filename: "{#PwShell}"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{#ScriptsDir}\control.ps1"" open"; IconFilename: "{app}\installer\windows\assets\personal-assistant.ico"; Tasks: desktopicon
+Name: "{userstartup}\Personal Assistant Tray"; Filename: "{#PwShell}"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{#ScriptsDir}\tray.ps1"""; Tasks: trayautostart
 
 [Registry]
-Root: HKCU; Subkey: "Software\Automation Center"; ValueType: string; ValueName: "Version";    ValueData: "{#AppVersion}"; Flags: uninsdeletekey
-Root: HKCU; Subkey: "Software\Automation Center"; ValueType: string; ValueName: "InstallDir"; ValueData: "{app}"
+Root: HKCU; Subkey: "Software\Personal Assistant"; ValueType: string; ValueName: "Version";    ValueData: "{#AppVersion}"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Personal Assistant"; ValueType: string; ValueName: "InstallDir"; ValueData: "{app}"
+; Rastro del nombre anterior: se elimina al desinstalar, no se crea nunca.
+Root: HKCU; Subkey: "Software\Automation Center"; Flags: dontcreatekey uninsdeletekey
 
 [Run]
 Filename: "{#PwShell}"; \
@@ -143,12 +152,12 @@ Filename: "{#PwShell}"; \
 ; Interactivo: pregunta (MessageBox) qué hacer con los datos.
 Filename: "{#PwShell}"; \
   Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\installer\windows\scripts\uninstall.ps1"" -Mode Ask"; \
-  RunOnceId: "AutomationCenterUninstall"; Flags: runascurrentuser waituntilterminated; \
+  RunOnceId: "PersonalAssistantUninstall"; Flags: runascurrentuser waituntilterminated; \
   Check: not UninstallSilent
 ; Silencioso: conserva los datos (nunca borra en silencio).
 Filename: "{#PwShell}"; \
   Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\installer\windows\scripts\uninstall.ps1"" -Mode KeepData -Silent"; \
-  RunOnceId: "AutomationCenterUninstallSilent"; Flags: runascurrentuser waituntilterminated; \
+  RunOnceId: "PersonalAssistantUninstallSilent"; Flags: runascurrentuser waituntilterminated; \
   Check: UninstallSilent
 
 [Code]
@@ -168,11 +177,13 @@ function InitializeSetup(): Boolean;
 begin
   Result := True;
   GNeedRestart := False;
-  if RegQueryStringValue(HKCU, 'Software\Automation Center', 'InstallDir', GPriorDir) then
-  begin
-    if DirExists(GPriorDir) then
-      Log('Instalación previa detectada en ' + GPriorDir);
-  end;
+  // La subclave se llamaba 'Automation Center' hasta la v0.4.x. Se consulta
+  // tambien la antigua: de ella depende que una actualizacion haga backup y
+  // pare los servicios antes de sobrescribir ficheros.
+  if not RegQueryStringValue(HKCU, 'Software\Personal Assistant', 'InstallDir', GPriorDir) then
+    RegQueryStringValue(HKCU, 'Software\Automation Center', 'InstallDir', GPriorDir);
+  if (GPriorDir <> '') and DirExists(GPriorDir) then
+    Log('Instalación previa detectada en ' + GPriorDir);
 end;
 
 // --- Antes de sobrescribir ficheros: backup + parar (solo en upgrade) --
@@ -218,5 +229,5 @@ var
   Dummy: String;
 begin
   Result := GNeedRestart or
-    RegQueryStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\RunOnce', 'AutomationCenterSetupResume', Dummy);
+    RegQueryStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\RunOnce', 'PersonalAssistantSetupResume', Dummy);
 end;

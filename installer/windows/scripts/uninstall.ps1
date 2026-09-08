@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-  Desinstalación de Automation Center (la invoca el desinstalador del .exe).
+  Desinstalación de Personal Assistant (la invoca el desinstalador del .exe).
 
 .DESCRIPTION
   Pregunta SIEMPRE qué hacer con los datos (salvo -Mode explícito):
@@ -26,11 +26,11 @@ if ($Mode -eq 'Ask') {
   else {
     Add-Type -AssemblyName System.Windows.Forms | Out-Null
     $r = [System.Windows.Forms.MessageBox]::Show(
-      "¿Conservar tus datos de Automation Center?`n`n" +
+      "¿Conservar tus datos de Personal Assistant?`n`n" +
       "SÍ  = conservar (workflows, perfiles, credenciales, usuarios, BD).`n" +
       "NO  = borrar TODO (irreversible).`n" +
       "Cancelar = no desinstalar ahora.",
-      'Automation Center - Desinstalar',
+      'Personal Assistant - Desinstalar',
       [System.Windows.Forms.MessageBoxButtons]::YesNoCancel,
       [System.Windows.Forms.MessageBoxIcon]::Warning)
     switch ($r) {
@@ -41,7 +41,7 @@ if ($Mode -eq 'Ask') {
   }
 }
 
-Write-ApLog -Level STEP -Message "Desinstalando Automation Center (modo: $Mode)"
+Write-ApLog -Level STEP -Message "Desinstalando Personal Assistant (modo: $Mode)"
 
 # Bandeja
 Get-Process powershell -ErrorAction SilentlyContinue |
@@ -49,10 +49,10 @@ Get-Process powershell -ErrorAction SilentlyContinue |
   ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
 
 # Arranque automático (tarea programada + RunOnce)
-foreach ($t in @('AutomationPlatform','AutomationCenter')) {
+foreach ($t in @('PersonalAssistant','AutomationPlatform','AutomationCenter')) {
   schtasks.exe /Delete /TN $t /F 2>$null | Out-Null
 }
-Remove-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\RunOnce' -Name 'AutomationCenterSetupResume' -ErrorAction SilentlyContinue
+Remove-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\RunOnce' -Name 'PersonalAssistantSetupResume' -ErrorAction SilentlyContinue
 
 # Contenedores / volúmenes (reutiliza el desinstalador base)
 $dArgs = @('-NoProfile','-ExecutionPolicy','Bypass','-File', (Join-Path $RepoRoot 'installer\uninstall.ps1'), '-Yes')
@@ -60,9 +60,9 @@ if ($Mode -eq 'PurgeData') { $dArgs += '-PurgeData' }
 $p = Start-Process powershell.exe -ArgumentList $dArgs -Wait -PassThru -NoNewWindow
 
 # Accesos directos del menú Inicio (Inno borra los suyos; esto cubre el resto)
-$sm = Join-Path ([Environment]::GetFolderPath('Programs')) 'Automation Center'
+$sm = Join-Path ([Environment]::GetFolderPath('Programs')) 'Personal Assistant'
 if (Test-Path $sm) { Remove-Item $sm -Recurse -Force -ErrorAction SilentlyContinue }
-$startup = Join-Path ([Environment]::GetFolderPath('Startup')) 'Automation Center Tray.lnk'
+$startup = Join-Path ([Environment]::GetFolderPath('Startup')) 'Personal Assistant Tray.lnk'
 Remove-Item $startup -Force -ErrorAction SilentlyContinue
 
 Write-ApLog -Level OK -Message "Desinstalación completada (datos: $Mode)."

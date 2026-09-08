@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-  Orquestador de primer arranque de Automation Center (lo lanza el instalador .exe).
+  Orquestador de primer arranque de Personal Assistant (lo lanza el instalador .exe).
 
 .DESCRIPTION
   DETECTA -> WSL2 -> DOCKER -> DESPLIEGA -> HEALTH CHECKS -> READY.
@@ -34,7 +34,7 @@ $Version  = (Get-Content (Join-Path $RepoRoot 'VERSION') -Raw).Trim()
 
 Initialize-ApHome
 Write-Host ''
-Write-ApLog -Level STEP -Message "Automation Center · primer arranque · v$Version $(if($Resumed){'(reanudado tras reinicio)'})"
+Write-ApLog -Level STEP -Message "Personal Assistant · primer arranque · v$Version $(if($Resumed){'(reanudado tras reinicio)'})"
 
 # --- 1. Detección -----------------------------------------------------
 $detect = Join-Path $PSScriptRoot 'detect.ps1'
@@ -82,7 +82,7 @@ if (-not $SkipEnvironmentPrep -and (-not $report.docker.installed -or -not $repo
 }
 
 # --- 4. Despliegue (reutiliza installer/install.ps1) -----------------
-Write-ApStep 'Desplegando Automation Center'
+Write-ApStep 'Desplegando Personal Assistant'
 $deployArgs = @('-NoProfile','-ExecutionPolicy','Bypass','-File', (Join-Path $RepoRoot 'installer\install.ps1'))
 if ($Unattended)  { $deployArgs += '-Unattended' }
 if ($ConfigFile)  { $deployArgs += @('-ConfigFile', $ConfigFile) }
@@ -96,5 +96,5 @@ if ($deployCode -ne 0) {
 }
 
 Unregister-ResumeAfterReboot
-Write-ApLog -Level OK -Message 'FINAL STATUS: READY — Automation Center instalado y sano.'
+Write-ApLog -Level OK -Message 'FINAL STATUS: READY — Personal Assistant instalado y sano.'
 exit 0

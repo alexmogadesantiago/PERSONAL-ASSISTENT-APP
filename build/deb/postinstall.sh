@@ -4,7 +4,7 @@ set -e
 if [ -d /run/systemd/system ]; then
   cat > /etc/systemd/system/automation-platform.service <<'UNIT'
 [Unit]
-Description=Automation Platform (docker compose)
+Description=Personal Assistant (docker compose)
 Requires=docker.service
 After=docker.service network-online.target
 
@@ -21,7 +21,7 @@ UNIT
   systemctl daemon-reload || true
 fi
 echo ""
-echo "  Automation Platform instalado en /opt/automation-platform"
+echo "  Personal Assistant instalado en /opt/automation-platform"
 echo "  Completa la configuracion:  sudo automation-platform-install"
 echo ""
 exit 0

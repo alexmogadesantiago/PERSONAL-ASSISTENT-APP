@@ -1,11 +1,11 @@
 ﻿<#
 .SYNOPSIS
-  Compila el instalador nativo AutomationCenter-Setup.exe con Inno Setup.
+  Compila el instalador nativo Personal-Assistant-Setup.exe con Inno Setup.
 
 .DESCRIPTION
   Fuente única de versión: el fichero VERSION en la raíz. Se pasa a ISCC como
   /DAppVersion. Busca ISCC.exe en las rutas habituales o en PATH.
-  Salida:  dist\AutomationCenter-Setup.exe  +  dist\AutomationCenter-Setup.exe.sha256
+  Salida:  dist\Personal-Assistant-Setup.exe  +  dist\Personal-Assistant-Setup.exe.sha256
 
 .PARAMETER Iscc
   Ruta a ISCC.exe (si no está en PATH ni en las rutas por defecto).
@@ -22,7 +22,7 @@ $ErrorActionPreference = 'Stop'
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $Version  = (Get-Content (Join-Path $RepoRoot 'VERSION') -Raw).Trim()
-$Iss      = Join-Path $RepoRoot 'installer\windows\AutomationCenter.iss'
+$Iss      = Join-Path $RepoRoot 'installer\windows\PersonalAssistant.iss'
 $DistDir  = Join-Path $RepoRoot 'dist'
 
 if (-not $Iscc) {
@@ -42,13 +42,13 @@ if (-not $Iscc -or -not (Test-Path $Iscc)) {
 }
 
 New-Item -ItemType Directory -Force -Path $DistDir | Out-Null
-Write-Host "==> Compilando AutomationCenter-Setup.exe  (v$Version)" -ForegroundColor Cyan
+Write-Host "==> Compilando Personal-Assistant-Setup.exe  (v$Version)" -ForegroundColor Cyan
 Write-Host "    ISCC: $Iscc"
 
 & $Iscc "/DAppVersion=$Version" $Iss
 if ($LASTEXITCODE -ne 0) { throw "ISCC devolvió $LASTEXITCODE" }
 
-$exe = Join-Path $DistDir 'AutomationCenter-Setup.exe'
+$exe = Join-Path $DistDir 'Personal-Assistant-Setup.exe'
 if (-not (Test-Path $exe)) { throw "No se generó $exe" }
 
 if ($Sign -and $env:WINDOWS_PFX_BASE64) {
@@ -64,7 +64,7 @@ if ($Sign -and $env:WINDOWS_PFX_BASE64) {
 }
 
 $sha = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
-"$sha  AutomationCenter-Setup.exe" | Set-Content "$exe.sha256" -Encoding ascii
+"$sha  Personal-Assistant-Setup.exe" | Set-Content "$exe.sha256" -Encoding ascii
 
 Write-Host ''
 Write-Host "==> OK  $exe" -ForegroundColor Green

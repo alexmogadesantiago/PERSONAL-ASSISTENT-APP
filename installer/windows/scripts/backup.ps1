@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-  Copia de seguridad de Automation Center. NO destructivo.
+  Copia de seguridad de Personal Assistant. NO destructivo.
 
 .DESCRIPTION
   Guarda en %LOCALAPPDATA%\AutomationPlatform\backups\<timestamp>\ :
@@ -95,7 +95,7 @@ Get-ChildItem (Join-Path $dir 'config') -Filter '*.example.json' -ErrorAction Si
 
 $wf = Get-N8nWorkflowCount -DockerExe $docker.path -Cwd $RepoRoot
 $manifest = [ordered]@{
-  product        = 'automation-center'
+  product        = 'personal-assistant'
   version        = $Version
   createdAt      = (Get-Date -Format o)
   n8nDatabase    = $n8nDb

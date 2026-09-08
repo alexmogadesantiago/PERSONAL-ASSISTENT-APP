@@ -64,7 +64,7 @@ $script:AP_STEPS = @(
   'health-check', 'ready'
 )
 
-# Contenedores del stack completo (Fase 1 + Automation Center).
+# Contenedores del stack completo (Fase 1 + Personal Assistant).
 $script:AP_CONTAINERS = @('pa-postgres','pa-n8n','pa-playwright','pa-profile','pa-backend','pa-frontend')
 
 # IDs de los 4 workflows que deben existir siempre (no se duplican: import upsert por id).

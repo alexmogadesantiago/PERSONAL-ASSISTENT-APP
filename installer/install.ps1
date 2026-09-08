@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Instalador de Automation Platform para Windows (x64 / ARM64).
+  Instalador de Personal Assistant para Windows (x64 / ARM64).
 
 .DESCRIPTION
   DESCARGAR -> EJECUTAR -> INSTALACIÓN AUTOMÁTICA -> READY.
@@ -9,7 +9,7 @@
   checks reales y registra el arranque automático.
 
   Idempotente (re-ejecutar no duplica nada) y reanudable (guarda el estado
-  en %LOCALAPPDATA%\AutomationPlatform\state.json).
+  en %LOCALAPPDATA%\Personal Assistant\data\state.json).
 
 .PARAMETER Unattended
   No hace preguntas. Los secretos se toman de variables de entorno o de -ConfigFile.
@@ -44,7 +44,7 @@ $RepoRoot = Split-Path -Parent $PSScriptRoot
 $Version = (Get-Content (Join-Path $RepoRoot 'VERSION') -Raw).Trim()
 
 # Secretos que consume el stack. internal=lo genera el instalador.
-#   kind='fernet'  -> clave base64 url-safe de 32 bytes (Automation Center credential store)
+#   kind='fernet'  -> clave base64 url-safe de 32 bytes (Personal Assistant credential store)
 $SecretSpec = @(
   @{ key='POSTGRES_PASSWORD';              internal=$true  }
   @{ key='N8N_ENCRYPTION_KEY';             internal=$true  }
@@ -111,7 +111,7 @@ function Write-EnvFile([string]$Path, [hashtable]$Values) {
 
 # ==========================================================================
 Write-Host ''
-Write-ApLog -Level STEP -Message "Automation Platform installer v$Version"
+Write-ApLog -Level STEP -Message "Personal Assistant installer v$Version"
 Initialize-ApHome
 
 $state = Get-ApState
@@ -335,7 +335,12 @@ foreach ($k in $hc.Keys) {
 
 # --- Autostart: arranca el stack al iniciar sesión --------------
 Write-ApStep 'Registrando arranque automático'
-$taskName = 'AutomationPlatform'
+$taskName = 'PersonalAssistant'
+# Nombres que uso la tarea en versiones anteriores: se retiran para que una
+# actualizacion no deje dos tareas arrancando el mismo stack.
+foreach ($oldTask in @('AutomationPlatform','AutomationCenter')) {
+  & schtasks.exe /Delete /TN $oldTask /F 2>&1 | Out-Null
+}
 $autostart = $false
 # La tarea ya no puede depender del directorio actual: el compose esta en el
 # directorio de instalacion y el .env en el de datos. Get-ApComposeArgs lleva
@@ -370,13 +375,13 @@ if (-not $allOk) {
 Set-ApState 'ready'
 Write-Host ''
 Write-ApLog -Level OK -Message '================  READY  ================'
-Write-ApLog -Level OK -Message "Automation Center:  http://localhost:$frontendPort"
+Write-ApLog -Level OK -Message "Personal Assistant:  http://localhost:$frontendPort"
 Write-ApLog -Level OK -Message "API (backend):      http://localhost:$backendPort/api/health"
 Write-ApLog -Level OK -Message "n8n (workflows):    http://localhost:$n8nPort"
 Write-ApLog -Level OK -Message "Editor de perfil:   http://localhost:$profilePort"
 Write-ApLog -Level OK -Message "Log:                $script:AP_LOG"
 Write-Host ''
-Write-ApLog "Siguiente: abre Automation Center, crea la cuenta (el primer usuario es admin) y conecta las credenciales."
+Write-ApLog "Siguiente: abre Personal Assistant, crea la cuenta (el primer usuario es admin) y conecta las credenciales."
 if (-not $SkipBrowser) {
   Start-Process "http://localhost:$frontendPort"
 }

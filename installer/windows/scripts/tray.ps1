@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-  Icono de bandeja de Automation Center.
+  Icono de bandeja de Personal Assistant.
 
 .DESCRIPTION
   Menú:  Abrir panel · Estado · Iniciar · Parar · Reiniciar · Ver logs · Backup · Salir
@@ -26,13 +26,13 @@ function Start-Ctl([string]$Action) {
     '-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $scriptsDir 'control.ps1'),$Action)
 }
 
-$icoPath = Join-Path $scriptsDir '..\assets\automation-center.ico'
+$icoPath = Join-Path $scriptsDir '..\assets\personal-assistant.ico'
 $icon = if (Test-Path $icoPath) { New-Object System.Drawing.Icon $icoPath } else { [System.Drawing.SystemIcons]::Application }
 
 $ni = New-Object System.Windows.Forms.NotifyIcon
 $ni.Icon = $icon
 $ni.Visible = $true
-$ni.Text = 'Automation Center'
+$ni.Text = 'Personal Assistant'
 
 $menu = New-Object System.Windows.Forms.ContextMenuStrip
 $statusItem = $menu.Items.Add('● comprobando...'); $statusItem.Enabled = $false
@@ -59,7 +59,7 @@ $timer.add_Tick({
   } catch { }
   $statusItem.Text = if ($up) { '● Running' } else { '● Stopped' }
   $statusItem.ForeColor = if ($up) { [System.Drawing.Color]::Green } else { [System.Drawing.Color]::Firebrick }
-  $ni.Text = if ($up) { 'Automation Center — Running' } else { 'Automation Center — Stopped' }
+  $ni.Text = if ($up) { 'Personal Assistant — Running' } else { 'Personal Assistant — Stopped' }
 })
 $timer.Start()
 

@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Genera los artefactos distribuibles de Automation Platform.
+  Genera los artefactos distribuibles de Personal Assistant.
 
 .DESCRIPTION
   El "producto" es el stack docker-compose + los scripts de instalación, que
@@ -30,7 +30,7 @@ $Stage    = Join-Path $env:TEMP "ap-build-$([guid]::NewGuid().ToString('N').Subs
 # ficheros/carpetas que NO van en el paquete
 $Exclude = @('.git','.env','dist','node_modules','.pytest_cache')
 
-Write-Host "==> Automation Platform build v$Version" -ForegroundColor Cyan
+Write-Host "==> Personal Assistant build v$Version" -ForegroundColor Cyan
 if (-not (Get-Command tar -ErrorAction SilentlyContinue)) { throw "'tar' no disponible (Windows 10+ lo trae)." }
 New-Item -ItemType Directory -Force -Path $DistDir | Out-Null
 

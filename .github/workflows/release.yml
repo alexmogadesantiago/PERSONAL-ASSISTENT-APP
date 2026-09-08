@@ -151,7 +151,7 @@ jobs:
           name: automation-platform
           arch: ${ARCH}
           version: ${VERSION}
-          maintainer: "Automation Platform"
+          maintainer: "Personal Assistant"
           description: "Asistente personal (n8n + Docker). Instalador y stack local."
           section: utils
           priority: optional
@@ -176,7 +176,7 @@ jobs:
           path: dist/*
 
   # -------------------------------------------------------------------------
-  # Instalador nativo AutomationCenter-Setup.exe con Inno Setup 6.
+  # Instalador nativo Personal-Assistant-Setup.exe con Inno Setup 6.
   # Un único .exe (x64 + ARM64): el payload es docker-compose, independiente
   # de arquitectura; bootstrap.ps1 detecta la plataforma en tiempo de ejecución.
   # Firma opcional: si el secret WINDOWS_PFX_BASE64 existe.
@@ -186,12 +186,25 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Pruebas del instalador (rutas, datos, compose)
+        shell: powershell
+        run: |
+          # Windows PowerShell 5.1 a proposito: es el que ejecuta el .exe
+          # en la maquina del usuario.
+          powershell -NoProfile -ExecutionPolicy Bypass -File installer\tests\Test-Installer.ps1
       - name: Instalar Inno Setup 6
         shell: pwsh
         run: choco install innosetup --no-progress -y
-      - name: Compilar AutomationCenter-Setup.exe
+      - name: Compilar Personal-Assistant-Setup.exe
         shell: pwsh
         run: pwsh -File build/build-exe.ps1
+      - name: Auditar el contenido del instalador
+        shell: powershell
+        run: |
+          # Ningun *.pem, .claude\, worktree, .venv ni web.py puede acabar
+          # dentro del .exe. Audita el manifiesto y, extrayendo de verdad, el
+          # arbol instalado.
+          powershell -NoProfile -ExecutionPolicy Bypass -File installer\tests\Test-Installer.ps1
       - name: Firmar (si hay certificado)
         shell: pwsh
         continue-on-error: true
@@ -200,21 +213,21 @@ jobs:
           WINDOWS_PFX_PASSWORD: ${{ secrets.WINDOWS_PFX_PASSWORD }}
         run: |
           if (-not $env:WINDOWS_PFX_BASE64) {
-            Write-Warning 'Sin WINDOWS_PFX_BASE64/PASSWORD: AutomationCenter-Setup.exe queda SIN FIRMAR.'
+            Write-Warning 'Sin WINDOWS_PFX_BASE64/PASSWORD: Personal-Assistant-Setup.exe queda SIN FIRMAR.'
             Write-Output '::warning title=EXE sin firmar::No hay certificado de firma de codigo (secrets WINDOWS_PFX_BASE64 / WINDOWS_PFX_PASSWORD).'
             exit 0
           }
           [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\c.pfx", [Convert]::FromBase64String($env:WINDOWS_PFX_BASE64))
           $st = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" | Select-Object -Last 1
-          & $st.FullName sign /f "$env:RUNNER_TEMP\c.pfx" /p $env:WINDOWS_PFX_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 dist\AutomationCenter-Setup.exe
+          & $st.FullName sign /f "$env:RUNNER_TEMP\c.pfx" /p $env:WINDOWS_PFX_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 dist\Personal-Assistant-Setup.exe
           Remove-Item "$env:RUNNER_TEMP\c.pfx" -Force -ErrorAction SilentlyContinue
-          Get-FileHash dist\AutomationCenter-Setup.exe -Algorithm SHA256 |
-            ForEach-Object { "$($_.Hash.ToLower())  AutomationCenter-Setup.exe" } |
-            Set-Content dist\AutomationCenter-Setup.exe.sha256
+          Get-FileHash dist\Personal-Assistant-Setup.exe -Algorithm SHA256 |
+            ForEach-Object { "$($_.Hash.ToLower())  Personal-Assistant-Setup.exe" } |
+            Set-Content dist\Personal-Assistant-Setup.exe.sha256
       - name: Comprobar EXE + checksum
         shell: pwsh
         run: |
-          $exe = 'dist\AutomationCenter-Setup.exe'
+          $exe = 'dist\Personal-Assistant-Setup.exe'
           $sum = "$exe.sha256"
           if (-not (Test-Path $exe)) { throw "no se genero $exe" }
           if (-not (Test-Path $sum)) { throw "no se genero $sum" }
@@ -225,7 +238,7 @@ jobs:
       - name: Comprobar que el .exe arranca
         shell: pwsh
         run: |
-          $p = Start-Process dist\AutomationCenter-Setup.exe -Wait -PassThru -ArgumentList @(
+          $p = Start-Process dist\Personal-Assistant-Setup.exe -Wait -PassThru -ArgumentList @(
             '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOICONS',
             "/DIR=$env:RUNNER_TEMP\ac", '/TASKS=!runsetup,!trayautostart,!desktopicon',
             "/LOG=$env:RUNNER_TEMP\ac-setup.log")
@@ -236,7 +249,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: windows-exe
-          path: dist/AutomationCenter-Setup.exe*
+          path: dist/Personal-Assistant-Setup.exe*
 
   # -------------------------------------------------------------------------
   release:

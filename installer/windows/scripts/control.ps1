@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-  Control de Automation Center: start | stop | restart | status | open | logs.
+  Control de Personal Assistant: start | stop | restart | status | open | logs.
 
 .DESCRIPTION
   Envoltorio fino sobre `docker compose`. No borra datos nunca.
@@ -34,7 +34,7 @@ $nPort = if ($envMap.ContainsKey('N8N_PORT')      -and $envMap['N8N_PORT'])     
 
 switch ($Action) {
   'start' {
-    Write-ApStep 'Arrancando Automation Center'
+    Write-ApStep 'Arrancando Personal Assistant'
     if ((Invoke-ApNative "$dq $dc up -d" $RepoRoot) -ne 0) { exit 1 }
     foreach ($c in $script:AP_CONTAINERS) {
       if (Wait-ContainerHealthy $docker.path $c 180) { Write-ApOk "$c healthy" } else { Write-ApWarn "$c no healthy todavía" }
@@ -42,12 +42,12 @@ switch ($Action) {
     Write-ApOk "Panel: http://localhost:$fPort"
   }
   'stop' {
-    Write-ApStep 'Parando Automation Center (los datos se conservan)'
+    Write-ApStep 'Parando Personal Assistant (los datos se conservan)'
     Invoke-ApNative "$dq $dc stop" $RepoRoot | Out-Null
     Write-ApOk 'Parado'
   }
   'restart' {
-    Write-ApStep 'Reiniciando Automation Center'
+    Write-ApStep 'Reiniciando Personal Assistant'
     Invoke-ApNative "$dq $dc restart" $RepoRoot | Out-Null
     Write-ApOk 'Reiniciado'
   }
@@ -59,7 +59,7 @@ switch ($Action) {
     & $env:ComSpec /c "$dq $dc logs --tail=120"
   }
   'status' {
-    Write-ApStep 'Estado de Automation Center'
+    Write-ApStep 'Estado de Personal Assistant'
     & $env:ComSpec /c "$dq $dc ps"
     Write-Host ''
     $wf = Get-N8nWorkflowCount -DockerExe $docker.path -Cwd $RepoRoot

@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Desinstalador de Automation Platform (Windows).
+  Desinstalador de Personal Assistant (Windows).
 
 .DESCRIPTION
   Para y elimina los contenedores, la tarea de arranque automático, el
@@ -22,7 +22,7 @@ $ErrorActionPreference = 'Stop'
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot 'lib.ps1')
 
-Write-ApLog -Level STEP -Message 'Desinstalando Automation Platform'
+Write-ApLog -Level STEP -Message 'Desinstalando Personal Assistant'
 
 if (-not $Yes) {
   $msg = if ($PurgeData) { 'Esto PARARÁ los servicios y BORRARÁ TODOS LOS DATOS (Postgres, n8n, borradores).' }
@@ -53,7 +53,12 @@ if ($docker.found -and $docker.running) {
 
 Write-ApStep 'Eliminando tarea de arranque automático'
 try {
-  Unregister-ScheduledTask -TaskName 'AutomationPlatform' -Confirm:$false -ErrorAction Stop
+  # Tambien los nombres de versiones anteriores, para no dejar tareas huerfanas.
+  $removed = $false
+  foreach ($t in @('PersonalAssistant','AutomationPlatform','AutomationCenter')) {
+    try { Unregister-ScheduledTask -TaskName $t -Confirm:$false -ErrorAction Stop; $removed = $true } catch { }
+  }
+  if (-not $removed) { throw 'no habia tarea programada' }
   Write-ApOk 'Tarea programada eliminada'
 } catch { Write-ApWarn 'No había tarea programada que eliminar' }
 

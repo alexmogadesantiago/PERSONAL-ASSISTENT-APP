@@ -230,6 +230,45 @@ Assert-True -Condition ($compose -notmatch '(?m)^\s*-\s*\./output:/files/output\
 Assert-Contains -Haystack $compose -Needle './workflows:/files/workflows:ro' `
   -Name 'workflows/ sigue montado de solo lectura junto al codigo'
 
+# --- 9. Identidad del producto --------------------------------------------
+Write-Host ''
+Write-Host '=== Producto: Personal Assistant ===' -ForegroundColor Cyan
+
+$issPath = Join-Path $RepoRoot 'installer\windows\PersonalAssistant.iss'
+Assert-True -Condition (Test-Path $issPath) -Name 'el .iss se llama PersonalAssistant.iss'
+if (Test-Path $issPath) {
+  $iss = Get-Content $issPath -Raw
+  Assert-Contains -Haystack $iss -Needle 'OutputBaseFilename=Personal-Assistant-Setup' `
+    -Name 'el instalador se llama Personal-Assistant-Setup.exe'
+  Assert-Contains -Haystack $iss -Needle '#define AppName "Personal Assistant"' `
+    -Name 'el producto se llama Personal Assistant'
+  Assert-Contains -Haystack $iss -Needle 'DefaultDirName={autopf}\Personal Assistant' `
+    -Name 'se instala en Program Files\Personal Assistant'
+  # El AppId identifica el producto para Windows: si cambia, una actualizacion
+  # deja de reconocer la instalacion anterior y aparecen dos entradas en
+  # "Agregar o quitar programas".
+  Assert-Contains -Haystack $iss -Needle 'AppId={{7F1C4E9A-3B2D-4A56-9E10-AC0DEC0DE001}' `
+    -Name 'el AppId NO cambia con el renombrado'
+  Assert-Contains -Haystack $iss -Needle "RegQueryStringValue(HKCU, 'Software\Automation Center', 'InstallDir'" `
+    -Name 'una instalacion de la v0.4.x se sigue detectando como actualizacion'
+  Assert-True -Condition ($iss -notmatch 'automation-center\.ico') `
+    -Name 'no quedan referencias al icono con el nombre antiguo'
+}
+
+# El icono renombrado tiene que existir: Inno falla en compilacion si no.
+Assert-True -Condition (Test-Path (Join-Path $RepoRoot 'installer\windows\assets\personal-assistant.ico')) `
+  -Name 'el icono personal-assistant.ico existe'
+
+# Nombres internos que NO deben cambiar: romperlos renombraria contenedores,
+# volumenes, base de datos o variables de entorno de una instalacion existente.
+$composeRaw = Get-Content (Join-Path $RepoRoot 'docker-compose.yml') -Raw
+Assert-Contains -Haystack $composeRaw -Needle 'name: personal-assistant' `
+  -Name 'el proyecto de compose conserva su nombre (contenedores y volumenes)'
+Assert-Contains -Haystack $composeRaw -Needle 'container_name: pa-postgres' `
+  -Name 'los contenedores conservan sus nombres pa-*'
+Assert-Contains -Haystack $composeRaw -Needle '/automation_center' `
+  -Name 'la base de datos sigue llamandose automation_center'
+
 Write-Host ''
 Write-Host ("RESULTADO: {0} pass, {1} fail" -f $script:Pass, $script:Fail) `
   -ForegroundColor $(if ($script:Fail) { 'Red' } else { 'Green' })

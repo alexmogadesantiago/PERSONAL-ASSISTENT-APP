@@ -77,7 +77,7 @@ function Get-WslInfo {
 
 # --- Continuación tras reinicio ---------------------------------------
 $script:AP_RESUME_RUNONCE = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\RunOnce'
-$script:AP_RESUME_NAME    = 'AutomationCenterSetupResume'
+$script:AP_RESUME_NAME    = 'PersonalAssistantSetupResume'
 
 function Register-ResumeAfterReboot {
   param([string]$BootstrapArgs = '')

@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-  Restaura una copia de seguridad de Automation Center.
+  Restaura una copia de seguridad de Personal Assistant.
 
 .DESCRIPTION
   Por defecto restaura SOLO la base de datos del backend (automation_center),

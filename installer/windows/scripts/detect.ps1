@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-  Detección de requisitos de Automation Center (Windows). Idempotente y sin efectos.
+  Detección de requisitos de Personal Assistant (Windows). Idempotente y sin efectos.
 
 .DESCRIPTION
   Comprueba: Windows 10/11 soportado, arquitectura, privilegios, WSL2,

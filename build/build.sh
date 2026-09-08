@@ -11,7 +11,7 @@ trap 'rm -rf "$STAGE"' EXIT
 
 TARGETS="${*:-windows-x64 windows-arm64 linux-x64 linux-arm64 raspberrypi-arm64}"
 mkdir -p "$DIST"
-echo "==> Automation Platform build v$VERSION"
+echo "==> Personal Assistant build v$VERSION"
 
 sha() { command -v sha256sum >/dev/null 2>&1 && sha256sum "$1" | cut -d' ' -f1 || shasum -a 256 "$1" | cut -d' ' -f1; }
 MANIFEST=""

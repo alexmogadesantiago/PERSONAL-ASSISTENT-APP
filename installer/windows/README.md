@@ -1,4 +1,4 @@
-# Instalador Windows — `AutomationCenter-Setup.exe`
+# Instalador Windows — `Personal-Assistant-Setup.exe`
 
 Instalador nativo hecho con **Inno Setup 6**. Empaqueta todo el repositorio
 (docker-compose + backend + frontend + workflows + scripts) en un único `.exe`
@@ -18,8 +18,8 @@ Windows y Linux comparten el flujo.
 
 ```
 installer/windows/
-├── AutomationCenter.iss        script de Inno Setup
-├── assets/automation-center.ico icono
+├── PersonalAssistant.iss        script de Inno Setup
+├── assets/personal-assistant.ico icono
 └── scripts/
     ├── common.ps1      helpers (reutiliza installer/lib.ps1) + WSL/elevación
     ├── detect.ps1      detección de requisitos (idempotente, sin efectos)  [-Json]
@@ -44,8 +44,8 @@ powershell -File build\build-exe.ps1
 Lee `VERSION`, lo pasa como `/DAppVersion`, compila y escribe:
 
 ```
-dist\AutomationCenter-Setup.exe
-dist\AutomationCenter-Setup.exe.sha256
+dist\Personal-Assistant-Setup.exe
+dist\Personal-Assistant-Setup.exe.sha256
 ```
 
 En CI: `.github/workflows/release.yml` job `windows-exe` (Inno vía `choco`,
@@ -57,7 +57,7 @@ certificado). Se dispara al empujar un tag `vX.Y.Z`.
 | Uso | Comando |
 |---|---|
 | Interactivo (doble clic) | asistente gráfico; al final ejecuta el bootstrap |
-| Desatendido | `AutomationCenter-Setup.exe /VERYSILENT /SUPPRESSMSGBOXES` |
+| Desatendido | `Personal-Assistant-Setup.exe /VERYSILENT /SUPPRESSMSGBOXES` |
 | Solo copiar ficheros (sin tocar Docker/WSL) | añade `/TASKS="!runsetup,!trayautostart"` |
 | Cambiar carpeta | `/DIR="C:\Ruta"` |
 | Log detallado | `/LOG="C:\setup.log"` |
@@ -65,7 +65,7 @@ certificado). Se dispara al empujar un tag `vX.Y.Z`.
 ## Reinicio
 
 Si Windows necesita reiniciar para activar la virtualización, `bootstrap.ps1`
-registra una entrada **RunOnce** (`AutomationCenterSetupResume`) y sale con
+registra una entrada **RunOnce** (`PersonalAssistantSetupResume`) y sale con
 código 10. Tras reiniciar e iniciar sesión, la instalación **continúa sola**.
 
 ## Qué necesita Internet

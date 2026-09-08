@@ -1,13 +1,13 @@
 @echo off
 REM ===========================================================================
-REM  Automation Platform - instalador para Windows (x64 / ARM64)
+REM  Personal Assistant - instalador para Windows (x64 / ARM64)
 REM  Haz doble clic en este archivo. No necesitas abrir PowerShell.
 REM ===========================================================================
 setlocal
 cd /d "%~dp0"
 
 echo.
-echo   Automation Platform - instalacion
+echo   Personal Assistant - instalacion
 echo   ---------------------------------
 echo.
 

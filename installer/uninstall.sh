@@ -1,5 +1,5 @@
 #!/bin/sh
-# Automation Platform - desinstalador (Linux / Raspberry Pi).
+# Personal Assistant - desinstalador (Linux / Raspberry Pi).
 #   ./installer/uninstall.sh [--purge-data] [--yes]
 set -eu
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -10,7 +10,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PURGE=0; YES=0
 for a in "$@"; do case "$a" in --purge-data) PURGE=1 ;; --yes) YES=1 ;; esac; done
 
-ap_log "Desinstalando Automation Platform" STEP
+ap_log "Desinstalando Personal Assistant" STEP
 if [ "$YES" = "0" ]; then
   [ "$PURGE" = "1" ] && echo "Esto PARARÁ los servicios y BORRARÁ TODOS LOS DATOS." \
                      || echo "Esto parará y eliminará los contenedores. Los datos se conservan."

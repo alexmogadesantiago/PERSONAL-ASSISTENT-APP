@@ -199,7 +199,7 @@ if ($Extract) {
     exit 3
   }
   $tmp    = Join-Path ([IO.Path]::GetTempPath()) ("pa-verify-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
-  $regKey = 'HKCU:\Software\Automation Center'
+  $regKey = 'HKCU:\Software\Personal Assistant'
   $hadKey = Test-Path $regKey
   $saved  = if ($hadKey) { Get-ItemProperty $regKey } else { $null }
 
