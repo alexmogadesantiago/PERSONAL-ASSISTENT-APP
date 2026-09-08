@@ -1,27 +1,32 @@
-# Instalación de Automation Center
+# Instalación de Personal Assistant
 
 `DESCARGAR → EJECUTAR → INSTALACIÓN AUTOMÁTICA → LOGIN → DASHBOARD`
+
+> Para el detalle de la aplicación Windows —directorio de datos, launcher,
+> bandeja, logs, actualización, desinstalación y cómo generar el `.exe`— ve a
+> [DEPLOYMENT-LOCAL.md](DEPLOYMENT-LOCAL.md). Aquí está el resumen y el primer
+> arranque del panel.
 
 ## Arquitectura
 
 ```
-WEB (Vercel)                         LOCAL (este instalador)
-Browser → Vercel → Backend remoto    Browser → localhost:3000 → Backend local
+TODO LOCAL (este instalador)          NUBE (opcional, no necesaria)
+Browser → 127.0.0.1:3000              El repositorio conserva render.yaml y
                 → PostgreSQL/n8n              → Docker (postgres, n8n,
                                                 playwright, backend, frontend)
 ```
 
-El instalador Windows despliega la parte **LOCAL**. El frontend en Vercel es
-independiente y no se toca aquí.
+El instalador Windows lo despliega **todo en este equipo**. Nada del producto
+necesita una cuenta en la nube.
 
 ## Plataformas soportadas (v0.4.0)
 
-El **Automation Center** (backend + panel) se instala **solo en Windows
+**Personal Assistant** (backend + panel) se instala **solo en Windows
 x64/ARM64** en v0.4.0.
 
-|         | Automation Center | Stack Fase 1 (n8n/Postgres/…) |
+|         | Personal Assistant | Stack Fase 1 (n8n/Postgres/…) |
 |---------|-------------------|------------------------------|
-| Windows 10 (2004+) / 11 · x64 · ARM64 | ✅ `AutomationCenter-Setup.exe` | ✅ |
+| Windows 10 (2004+) / 11 · x64 · ARM64 | ✅ `Personal-Assistant-Setup.exe` | ✅ |
 | Linux x64 / ARM64 | ❌ (no portado) | ✅ `installer/install.sh` |
 | Raspberry Pi OS 64-bit | ❌ (no portado) | ✅ `installer/install.sh` |
 
@@ -29,9 +34,9 @@ x64/ARM64** en v0.4.0.
 Alembic y no levanta `pa-backend` / `pa-frontend`. No se soporta x86/32-bit ni
 ARM32/ARMv7.
 
-## Windows — con `AutomationCenter-Setup.exe`
+## Windows — con `Personal-Assistant-Setup.exe`
 
-1. Descarga `AutomationCenter-Setup.exe` (de la [release](../.github/workflows/release.yml)).
+1. Descarga `Personal-Assistant-Setup.exe` (de la [release](../.github/workflows/release.yml)).
 2. Doble clic. El asistente:
    - comprueba Windows, arquitectura, RAM y disco;
    - **WSL2**: si falta, habilita `Microsoft-Windows-Subsystem-Linux` y
@@ -53,7 +58,7 @@ ARM32/ARMv7.
 ### Desatendido
 
 ```powershell
-AutomationCenter-Setup.exe /VERYSILENT /SUPPRESSMSGBOXES
+Personal-Assistant-Setup.exe /VERYSILENT /SUPPRESSMSGBOXES
 ```
 
 Los secretos externos (proveedor de IA, Telegram) se rellenan luego desde el
@@ -64,12 +69,12 @@ se pueden inyectar en la instalación.
 ## Paquete portable
 
 ```powershell
-# Windows (stack completo, incl. Automation Center): doble clic en
-# AutomationPlatform-Setup.cmd  (o)
+# Windows (stack completo): doble clic en
+# Personal-Assistant-Setup.cmd  (o)
 powershell -ExecutionPolicy Bypass -File installer\install.ps1
 ```
 ```sh
-# Linux / Raspberry Pi: SOLO stack Fase 1 (sin Automation Center)
+# Linux / Raspberry Pi: SOLO stack Fase 1 (sin backend ni panel)
 ./installer/install.sh
 sudo dpkg -i automation-platform-<v>-<arch>.deb && sudo automation-platform-install
 ```
@@ -87,7 +92,7 @@ sudo dpkg -i automation-platform-<v>-<arch>.deb && sudo automation-platform-inst
 
 | URL | Servicio |
 |---|---|
-| http://localhost:3000 | **Automation Center** (panel) |
+| http://localhost:3000 | **Personal Assistant** (panel) |
 | http://localhost:8080/api/health | API (backend) |
 | http://localhost:5678 | n8n (workflows) |
 | http://localhost:7777 | editor de perfil |
@@ -163,9 +168,10 @@ tiene backend no está roto.
 
 ## Gestión (sin PowerShell)
 
-Menú Inicio → **Automation Center**:
+Menú Inicio → **Personal Assistant**:
 
-- **Automation Center** — abre el panel
+- **Personal Assistant** — abre el launcher (estado + arranque/parada)
+- **Abrir el panel web** — abre el panel en el navegador
 - **Iniciar / Parar / Reiniciar / Estado**
 - **Ver logs**
 - **Copia de seguridad**
@@ -176,8 +182,8 @@ Icono de bandeja (si lo activaste): mismo menú + estado ● Running/Stopped.
 
 ## Estado y logs
 
-- Estado reanudable: `%LOCALAPPDATA%\AutomationPlatform\state.json`
-- Log (sin secretos): `%LOCALAPPDATA%\AutomationPlatform\install.log`
+- Estado reanudable: `%LOCALAPPDATA%\Personal Assistant\data\state.json`
+- Log (sin secretos): `%LOCALAPPDATA%\Personal Assistant\logs\install.log`
 - Log del `.exe`: pásale `/LOG="C:\ruta\setup.log"`
 
 ## Troubleshooting

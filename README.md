@@ -1,6 +1,17 @@
 # Personal Assistant
 
-Asistente personal construido sobre **n8n** + **Postgres** + un servicio de
+Aplicación de escritorio para Windows: se instala con un `.exe` y **se ejecuta
+entera en tu PC**. Sin AWS, sin Oracle Cloud, sin Render, sin SSH y sin abrir
+una terminal.
+
+```
+Personal-Assistant-Setup.exe  →  instalar  →  abrir Personal Assistant
+                                                        │
+                     Panel web · Backend · n8n · PostgreSQL · Playwright
+                                  todo en 127.0.0.1
+```
+
+Por dentro: **n8n** + **Postgres** + un servicio de
 **scraping con Playwright** + un **editor de perfil web**, todo en contenedores
 Docker. Cuatro automatizaciones:
 
@@ -23,9 +34,11 @@ El de Email necesita además OAuth de Google. Todo el detalle en
 | Documento | Para qué |
 |---|---|
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Cómo encaja todo y por qué: componentes, configuración, modelo de salud, seguridad |
+| [docs/DEPLOYMENT-LOCAL.md](docs/DEPLOYMENT-LOCAL.md) | **Empieza aquí**: instalar, usar, actualizar y desinstalar la aplicación Windows |
 | [docs/INSTALLATION.md](docs/INSTALLATION.md) | Instalación y primer arranque (asistente de configuración) |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Cómo encaja la capa de escritorio: instalador, launcher, bandeja, datos |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Trabajar en el código: tests, migraciones, añadir integraciones |
-| [docs/CLOUD-DEPLOYMENT.md](docs/CLOUD-DEPLOYMENT.md) | Despliegue Vercel + Render |
+| [docs/CLOUD-DEPLOYMENT.md](docs/CLOUD-DEPLOYMENT.md) | Opcional: alojarlo en Vercel + Render en vez de en local |
 | [CREDENCIALES.md](CREDENCIALES.md) | Qué credencial necesita cada automatización |
 
 ## Configuración sin terminal
