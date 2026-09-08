@@ -180,12 +180,37 @@ function Protect-ApString([string]$Text) {
   return $t
 }
 
+# Un fichero por componente dentro de logs\: install.log, launcher.log,
+# backend.log, n8n.log, playwright.log... Asi "ver los logs" es abrir una
+# carpeta, y un problema del launcher no se pierde entre 3.000 lineas de
+# instalacion.
+function Get-ApLogFile([string]$Component) {
+  $safe = ("$Component" -replace '[^A-Za-z0-9_.-]', '-')
+  if (-not $safe -or $safe -eq 'installer') { return $script:AP_LOG }
+  return (Join-Path $script:AP_LOGS "$safe.log")
+}
+
+# Rotacion simple por tamano: el log de un servicio que falla en bucle puede
+# crecer sin limite, y estos ficheros viven en el perfil del usuario.
+$script:AP_LOG_MAX_BYTES = 5MB
+function Limit-ApLogSize([string]$Path) {
+  try {
+    if ((Test-Path $Path) -and ((Get-Item $Path).Length -gt $script:AP_LOG_MAX_BYTES)) {
+      $old = "$Path.1"
+      if (Test-Path $old) { Remove-Item $old -Force -ErrorAction SilentlyContinue }
+      Move-Item $Path $old -Force -ErrorAction SilentlyContinue
+    }
+  } catch { }
+}
+
 function Write-ApLog {
   param([string]$Message, [ValidateSet('INFO','WARN','ERROR','STEP','OK')] [string]$Level = 'INFO', [string]$Component = 'installer')
   Initialize-ApHome
   $safe = Protect-ApString $Message
   $line = ('{0} [{1,-5}] {2,-12} {3}' -f (Get-Date -Format 'yyyy-MM-ddTHH:mm:ss'), $Level, $Component, $safe)
-  Add-Content -Path $script:AP_LOG -Value $line -Encoding utf8
+  $file = Get-ApLogFile $Component
+  Limit-ApLogSize $file
+  Add-Content -Path $file -Value $line -Encoding utf8
   $color = @{ INFO='Gray'; WARN='Yellow'; ERROR='Red'; STEP='Cyan'; OK='Green' }[$Level]
   Write-Host $line -ForegroundColor $color
 }
@@ -328,6 +353,51 @@ function Get-ApComposeArgs {
   $flags = @('-f', ('"' + $compose + '"'), '--project-directory', ('"' + $AppRoot + '"'))
   if (Test-Path $envFile) { $flags += @('--env-file', ('"' + $envFile + '"')) }
   return ('compose ' + ($flags -join ' '))
+}
+
+# --- Logs de los servicios --------------------------------------------
+# Docker guarda los logs de cada contenedor en su propio almacen, dentro de la
+# maquina de WSL2: sin `docker logs` no hay forma de leerlos, y pedirle eso al
+# usuario es justo lo que queremos evitar. Esto los vuelca a
+# %LOCALAPPDATA%\Personal Assistant\logs\<servicio>.log, que es una carpeta que
+# se abre con doble clic.
+#
+# Se pasan por Protect-ApString: los logs de un servicio pueden arrastrar una
+# URL con token o una variable de entorno en un volcado de error.
+$script:AP_LOG_SERVICES = @(
+  @{ service = 'backend';    file = 'backend.log' }
+  @{ service = 'n8n';        file = 'n8n.log' }
+  @{ service = 'playwright'; file = 'playwright.log' }
+  @{ service = 'postgres';   file = 'postgres.log' }
+  @{ service = 'frontend';   file = 'frontend.log' }
+  @{ service = 'profile';    file = 'profile.log' }
+)
+
+function Export-ApServiceLogs {
+  param(
+    [Parameter(Mandatory)][string] $DockerExe,
+    [Parameter(Mandatory)][string] $AppRoot,
+    [int] $Tail = 2000
+  )
+  Initialize-ApHome
+  $dq = '"' + $DockerExe + '"'
+  $dc = Get-ApComposeArgs $AppRoot
+  $written = @()
+  foreach ($svc in $script:AP_LOG_SERVICES) {
+    $out = Join-Path $script:AP_LOGS $svc.file
+    $prev = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+    try {
+      Push-Location $AppRoot
+      $raw = & $env:ComSpec /c "$dq $dc logs --no-color --tail $Tail $($svc.service) 2>&1"
+    } finally { Pop-Location; $ErrorActionPreference = $prev }
+
+    $text = ($raw | Out-String)
+    if (-not $text.Trim()) { continue }
+    $header = "# $($svc.service) - volcado $(Get-Date -Format 'yyyy-MM-ddTHH:mm:ss') - ultimas $Tail lineas"
+    Set-Content -Path $out -Value ($header + "`r`n" + (Protect-ApString $text)) -Encoding utf8
+    $written += $svc.file
+  }
+  return $written
 }
 
 # --- Puertos ----------------------------------------------------------

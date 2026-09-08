@@ -78,9 +78,8 @@ $menu.Items.Add('Iniciar',       $null, { Start-Ctl 'start' })   | Out-Null
 $menu.Items.Add('Reiniciar',     $null, { Start-Ctl 'restart' }) | Out-Null
 $menu.Items.Add('Detener',       $null, { Start-Ctl 'stop' })    | Out-Null
 $menu.Items.Add('Ver logs',      $null, {
-  $dir = Get-ApLogDir
-  if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
-  Start-Process explorer.exe $dir }) | Out-Null
+  # control.ps1 logs vuelca los logs de los contenedores a la carpeta y la abre.
+  Start-Ctl 'logs' }) | Out-Null
 $menu.Items.Add('Copia de seguridad', $null, {
   Start-Process powershell.exe -ArgumentList @('-NoExit','-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $scriptsDir 'backup.ps1')) }) | Out-Null
 $menu.Items.Add('-') | Out-Null

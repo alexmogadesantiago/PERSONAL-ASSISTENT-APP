@@ -7,12 +7,16 @@
   Lo usan los accesos directos del menú Inicio y el icono de la bandeja.
 
 .PARAMETER Action  start | stop | restart | status | open | logs
+.PARAMETER NoOpen  Con "logs": vuelca los ficheros pero no abre el explorador.
 #>
 [CmdletBinding()]
 param(
   [Parameter(Position=0)]
   [ValidateSet('start','stop','restart','status','open','logs')]
-  [string]$Action = 'status'
+  [string]$Action = 'status',
+  # El launcher ya abre la carpeta de logs por su cuenta: con -NoOpen solo se
+  # refrescan los ficheros.
+  [switch]$NoOpen
 )
 
 . (Join-Path $PSScriptRoot 'common.ps1')
@@ -53,10 +57,14 @@ switch ($Action) {
   }
   'open' { Start-Process "http://localhost:$fPort" }
   'logs' {
-    $log = $script:AP_LOG
-    Write-Host "install.log: $log"
-    Start-Process notepad.exe $log -ErrorAction SilentlyContinue
-    & $env:ComSpec /c "$dq $dc logs --tail=120"
+    Write-ApStep 'Recogiendo los logs de los servicios'
+    $files = Export-ApServiceLogs -DockerExe $docker.path -AppRoot $RepoRoot
+    $dir = Get-ApLogDir
+    foreach ($f in $files) { Write-ApOk $f }
+    Write-ApOk "install.log y launcher.log tambien estan en esa carpeta"
+    Write-Host ""
+    Write-Host "Logs en: $dir"
+    if (-not $NoOpen) { Start-Process explorer.exe $dir }
   }
   'status' {
     Write-ApStep 'Estado de Personal Assistant'

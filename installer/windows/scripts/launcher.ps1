@@ -290,9 +290,15 @@ $btnStop = New-Button 'Detener'      248 $by 90 {
   Start-Control -Action 'stop' -Message 'Deteniendo los servicios (los datos se conservan)...'
 }
 $btnLogs = New-Button 'Ver logs'     346 $by 100 {
+  # La carpeta se abre ya (respuesta inmediata) y el volcado de los logs de los
+  # contenedores se refresca en segundo plano: son seis llamadas a docker y
+  # bloquearian la ventana varios segundos.
   $dir = Get-ApLogDir
   if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
   Start-Process explorer.exe $dir
+  Start-Process -FilePath 'powershell.exe' -WindowStyle Hidden -ArgumentList @(
+    '-NoProfile', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass',
+    '-File', "`"$(Join-Path $PSScriptRoot 'control.ps1')`"", 'logs', '-NoOpen')
 }
 
 $by2 = $by + 38

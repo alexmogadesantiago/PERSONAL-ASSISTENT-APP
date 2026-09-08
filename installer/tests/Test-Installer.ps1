@@ -80,7 +80,12 @@ function Invoke-InSandbox {
   $script = Join-Path $LocalAppData 'case.ps1'
   ($prelude + "`n" + $Body) | Set-Content $script -Encoding utf8
   $out = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script 2>&1
-  return ($out | Out-String).Trim()
+  # Solo la ULTIMA linea no vacia: los casos escriben su resultado con
+  # Write-Output al final, y algunas funciones de lib.ps1 (Write-ApLog) tambien
+  # imprimen por consola, que no forma parte del resultado.
+  $lines = @(($out | Out-String) -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+  if ($lines.Count -eq 0) { return '' }
+  return $lines[-1]
 }
 
 Write-Host ''
@@ -265,7 +270,50 @@ Assert-Contains -Haystack $issRunRaw -Needle "Result := '-Unattended';" `
 Assert-Contains -Haystack $commonRaw -Needle 'RunOnce' `
   -Name 'se conserva la reanudacion automatica tras el reinicio (RunOnce)'
 
-# --- 10. Launcher de escritorio -------------------------------------------
+# --- 10. Logs --------------------------------------------------------------
+Write-Host ''
+Write-Host '=== Logs ===' -ForegroundColor Cyan
+
+$sandbox = New-TempDir
+try {
+  # Un componente = un fichero. Y ningun secreto llega al disco.
+  $res = Invoke-InSandbox -LocalAppData $sandbox -Body @'
+Write-ApLog -Component 'launcher' -Message 'hola desde el launcher' | Out-Null
+Write-ApLog -Component 'installer' -Message 'hola desde el instalador' | Out-Null
+Write-ApLog -Component 'launcher' -Message 'TELEGRAM_TOKEN_EMAIL=123456789:AAG_esto_es_un_token_de_prueba_largo' | Out-Null
+$logs = Get-ApLogDir
+$launcher = Get-Content (Join-Path $logs 'launcher.log') -Raw
+$install  = Get-Content (Join-Path $logs 'install.log')  -Raw
+$out = @()
+$out += if ($launcher -match 'hola desde el launcher') { 'launcher-ok' } else { 'NO-launcher' }
+$out += if ($install  -match 'hola desde el instalador') { 'install-ok' } else { 'NO-install' }
+$out += if ($install -notmatch 'hola desde el launcher') { 'separados' } else { 'NO-separados' }
+$out += if ($launcher -notmatch 'AAG_esto_es_un_token') { 'redactado' } else { 'NO-redactado' }
+Write-Output ($out -join ',')
+'@
+  Assert-Equal -Expected 'launcher-ok,install-ok,separados,redactado' -Actual $res `
+    -Name 'cada componente escribe en su propio log y los secretos se redactan'
+} finally { Remove-Item $sandbox -Recurse -Force -ErrorAction SilentlyContinue }
+
+$libRaw = Get-Content $LibPath -Raw
+Assert-Contains -Haystack $libRaw -Needle 'function Export-ApServiceLogs' `
+  -Name 'existe el volcado de los logs de los contenedores a fichero'
+foreach ($svc in @('backend.log', 'n8n.log', 'playwright.log')) {
+  Assert-Contains -Haystack $libRaw -Needle $svc -Name "se vuelca $svc"
+}
+# Los logs de un contenedor pueden arrastrar una URL con token en un error.
+Assert-Contains -Haystack $libRaw -Needle 'Protect-ApString $text' `
+  -Name 'los logs de los contenedores se redactan antes de escribirlos'
+Assert-Contains -Haystack $libRaw -Needle 'function Limit-ApLogSize' `
+  -Name 'los logs rotan por tamano y no crecen sin limite'
+
+$controlRaw = Get-Content (Join-Path $RepoRoot 'installer\windows\scripts\control.ps1') -Raw
+Assert-Contains -Haystack $controlRaw -Needle 'Export-ApServiceLogs' `
+  -Name 'control.ps1 logs vuelca los logs de los servicios'
+Assert-Contains -Haystack $controlRaw -Needle '$NoOpen' `
+  -Name 'control.ps1 logs puede refrescar sin abrir el explorador'
+
+# --- 11. Launcher de escritorio -------------------------------------------
 Write-Host ''
 Write-Host '=== Launcher ===' -ForegroundColor Cyan
 
@@ -322,7 +370,7 @@ Assert-Contains -Haystack $issIcons -Needle 'hidden.vbs"" ""{#ScriptsDir}\launch
 Assert-Contains -Haystack $issIcons -Needle 'scripts\*.vbs' `
   -Name 'el instalador empaqueta el shim .vbs'
 
-# --- 11. Identidad del producto -------------------------------------------
+# --- 12. Identidad del producto -------------------------------------------
 Write-Host ''
 Write-Host '=== Producto: Personal Assistant ===' -ForegroundColor Cyan
 
