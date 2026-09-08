@@ -8,9 +8,54 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 # --- Rutas ------------------------------------------------------------------
-$script:AP_HOME    = if ($env:AUTOMATION_PLATFORM_HOME) { $env:AUTOMATION_PLATFORM_HOME } else { Join-Path $env:LOCALAPPDATA 'AutomationPlatform' }
-$script:AP_STATE   = Join-Path $script:AP_HOME 'state.json'
-$script:AP_LOG     = Join-Path $script:AP_HOME 'install.log'
+#
+#   CODIGO  ->  el directorio de instalacion (Program Files\Personal Assistant).
+#               Solo lectura para el usuario: NUNCA se escribe nada ahi.
+#   DATOS   ->  %LOCALAPPDATA%\Personal Assistant. Todo lo que cambia.
+#
+#       %LOCALAPPDATA%\Personal Assistant\
+#         .env          secretos y puertos (fuera de config\ a proposito: config\
+#                       se monta dentro de n8n, que ejecuta codigo de usuario)
+#         config\       modules.json + user_profile.json  -> montado en n8n y profile
+#         data\         estado del instalador; ver data\README.txt
+#         output\       borradores generados por los workflows
+#         logs\         install.log, launcher.log, backend.log, n8n.log...
+#         backups\      copias de seguridad con marca de tiempo
+#
+# La base de datos de Postgres y el volumen de n8n NO viven aqui: son volumenes
+# con nombre de Docker (postgres_data, n8n_data). Postgres sobre un bind mount
+# de Windows es un problema conocido de permisos y fsync, y un volumen con
+# nombre sobrevive igual a desinstalar, actualizar y reiniciar. backups\ es la
+# via para sacarlos a disco.
+$script:AP_DATA_HOME = if ($env:PERSONAL_ASSISTANT_DATA) { $env:PERSONAL_ASSISTANT_DATA }
+                       elseif ($env:AUTOMATION_PLATFORM_HOME) { $env:AUTOMATION_PLATFORM_HOME }  # compat 0.4.x
+                       else { Join-Path $env:LOCALAPPDATA 'Personal Assistant' }
+# Nombre historico del directorio de datos (v0.4.x). Se migra al nuevo si existe.
+$script:AP_LEGACY_HOME = Join-Path $env:LOCALAPPDATA 'AutomationPlatform'
+
+$script:AP_HOME    = $script:AP_DATA_HOME     # alias historico, mismo directorio
+$script:AP_CONFIG  = Join-Path $script:AP_DATA_HOME 'config'
+$script:AP_DATA    = Join-Path $script:AP_DATA_HOME 'data'
+$script:AP_OUTPUT  = Join-Path $script:AP_DATA_HOME 'output'
+$script:AP_LOGS    = Join-Path $script:AP_DATA_HOME 'logs'
+$script:AP_BACKUPS = Join-Path $script:AP_DATA_HOME 'backups'
+$script:AP_ENV     = Join-Path $script:AP_DATA_HOME '.env'
+$script:AP_STATE   = Join-Path $script:AP_DATA 'state.json'
+$script:AP_LOG     = Join-Path $script:AP_LOGS 'install.log'
+
+function Get-ApDataHome { $script:AP_DATA_HOME }
+function Get-ApConfigDir { $script:AP_CONFIG }
+function Get-ApOutputDir { $script:AP_OUTPUT }
+
+# Ruta tal y como la quiere Docker Desktop en un bind mount: barras normales.
+# "C:\Users\a\AppData\Local\Personal Assistant\config"
+#   -> "C:/Users/a/AppData/Local/Personal Assistant/config"
+# El espacio no es problema en la sintaxis larga de compose (source:), que no
+# parte por ':'; la barra invertida si lo seria dentro de un .env.
+function ConvertTo-ApDockerPath([string]$Path) { $Path -replace '\\', '/' }
+function Get-ApEnvPath  { $script:AP_ENV }
+function Get-ApLogDir   { $script:AP_LOGS }
+function Get-ApBackupDir{ $script:AP_BACKUPS }
 
 # Pasos de instalación, en orden. El estado guarda el último completado.
 $script:AP_STEPS = @(
@@ -26,7 +71,71 @@ $script:AP_CONTAINERS = @('pa-postgres','pa-n8n','pa-playwright','pa-profile','p
 $script:AP_WORKFLOW_IDS = @('0ikHqQCWMke67aoI','pa01email000001','pa02laboral00001','pa04marcapersonal')
 
 function Initialize-ApHome {
-  if (-not (Test-Path $script:AP_HOME)) { New-Item -ItemType Directory -Force -Path $script:AP_HOME | Out-Null }
+  # Barato e idempotente: lo llama Write-ApLog en cada linea.
+  if (Test-Path $script:AP_LOGS) { return }
+
+  $migrate = (-not (Test-Path $script:AP_DATA_HOME)) -and (Test-Path $script:AP_LEGACY_HOME) -and
+             ($script:AP_DATA_HOME -ne $script:AP_LEGACY_HOME)
+  if ($migrate) {
+    # v0.4.x guardaba estado, log y backups en %LOCALAPPDATA%\AutomationPlatform.
+    # Se mueve entero para no perder las copias de seguridad del usuario.
+    try {
+      Move-Item $script:AP_LEGACY_HOME $script:AP_DATA_HOME -Force -ErrorAction Stop
+    } catch {
+      Copy-Item $script:AP_LEGACY_HOME $script:AP_DATA_HOME -Recurse -Force -ErrorAction SilentlyContinue
+    }
+  }
+
+  foreach ($d in @($script:AP_DATA_HOME, $script:AP_CONFIG, $script:AP_DATA, $script:AP_OUTPUT,
+                   $script:AP_LOGS, $script:AP_BACKUPS, (Join-Path $script:AP_OUTPUT 'marca-personal'))) {
+    if (-not (Test-Path $d)) { New-Item -ItemType Directory -Force -Path $d | Out-Null }
+  }
+
+  # Colocacion del layout antiguo dentro del nuevo (state.json y install.log
+  # estaban en la raiz del home; ahora viven en data\ y logs\).
+  foreach ($mv in @(
+      @{ from = (Join-Path $script:AP_DATA_HOME 'state.json');  to = $script:AP_STATE }
+      @{ from = (Join-Path $script:AP_DATA_HOME 'install.log'); to = $script:AP_LOG })) {
+    if ((Test-Path $mv.from) -and -not (Test-Path $mv.to)) {
+      Move-Item $mv.from $mv.to -Force -ErrorAction SilentlyContinue
+    }
+  }
+
+  $readme = Join-Path $script:AP_DATA 'README.txt'
+  if (-not (Test-Path $readme)) {
+    @(
+      'Personal Assistant - datos de la aplicacion'
+      ''
+      'Este directorio y sus hermanos (config, output, logs, backups) contienen'
+      'TUS datos. Se conservan al actualizar y solo se borran si lo pides'
+      'explicitamente al desinstalar.'
+      ''
+      'La base de datos de PostgreSQL y el volumen de n8n (credenciales'
+      'cifradas, ejecuciones) NO estan aqui: son volumenes con nombre de Docker,'
+      'llamados personal-assistant_postgres_data y personal-assistant_n8n_data.'
+      'Postgres sobre un directorio de Windows da problemas de permisos y de'
+      'fsync; un volumen con nombre es mas rapido y sobrevive igual a las'
+      'actualizaciones. Para tener esos datos como ficheros, usa la copia de'
+      'seguridad: crea un backup y lo encontraras en ..\backups\.'
+    ) -join "`r`n" | Set-Content $readme -Encoding utf8
+  }
+}
+
+# Copia las plantillas del directorio de instalacion al de datos, sin pisar lo
+# que el usuario ya tenga. Idempotente.
+function Initialize-ApUserConfig {
+  param([Parameter(Mandatory)][string] $AppRoot)
+  Initialize-ApHome
+  $src = Join-Path $AppRoot 'config'
+  # modules.json es catalogo (lo actualiza cada version); user_profile.json es
+  # del usuario (solo se siembra la primera vez).
+  $modules = Join-Path $src 'modules.json'
+  if (Test-Path $modules) { Copy-Item $modules (Join-Path $script:AP_CONFIG 'modules.json') -Force }
+  $profileDst = Join-Path $script:AP_CONFIG 'user_profile.json'
+  if (-not (Test-Path $profileDst)) {
+    $example = Join-Path $src 'user_profile.example.json'
+    if (Test-Path $example) { Copy-Item $example $profileDst -Force }
+  }
 }
 
 # --- Logging (nunca imprime secretos) -------------------------------------
@@ -175,6 +284,27 @@ function Start-DockerDesktop {
   return $false
 }
 
+# --- Docker Compose: argumentos comunes -------------------------------
+# El codigo vive en Program Files y los datos en %LOCALAPPDATA%, asi que
+# `docker compose` ya no puede limitarse a heredar el directorio actual:
+#
+#   -f                  el compose que se instalo con la aplicacion
+#   --env-file          el .env del usuario, que esta en otro sitio
+#   --project-directory el ancla de las rutas relativas del compose
+#                       (./workflows, ./scripts/db-init: ambos de solo lectura)
+#
+# El nombre del proyecto lo fija `name:` dentro del propio compose, asi que los
+# contenedores y volumenes se llaman igual se invoque desde donde se invoque.
+function Get-ApComposeArgs {
+  param([Parameter(Mandatory)][string] $AppRoot)
+  $compose = Join-Path $AppRoot 'docker-compose.yml'
+  $envFile = $script:AP_ENV
+  # `$args` es una variable automatica de PowerShell: usamos otro nombre.
+  $flags = @('-f', ('"' + $compose + '"'), '--project-directory', ('"' + $AppRoot + '"'))
+  if (Test-Path $envFile) { $flags += @('--env-file', ('"' + $envFile + '"')) }
+  return ('compose ' + ($flags -join ' '))
+}
+
 # --- Puertos ----------------------------------------------------------
 function Test-PortFree([int]$Port) {
   try {
@@ -241,8 +371,12 @@ function Invoke-ApHealthChecks {
 
 # --- Postgres: consultas puntuales sin romper por NativeCommandError ------
 function Read-ApEnvMap([string]$Cwd) {
+  # Orden de busqueda: el .env del directorio de DATOS (instalacion real) y,
+  # solo si no existe, el de la raiz del repositorio (desarrollo). El
+  # directorio de instalacion nunca contiene un .env: no se escribe ahi.
   $m = @{}
-  $envPath = Join-Path $Cwd '.env'
+  $envPath = $script:AP_ENV
+  if (-not (Test-Path $envPath)) { $envPath = Join-Path $Cwd '.env' }
   if (-not (Test-Path $envPath)) { $envPath = Join-Path (Split-Path -Parent $Cwd) '.env' }
   if (Test-Path $envPath) {
     foreach ($l in Get-Content $envPath) {
@@ -259,7 +393,7 @@ function Invoke-ApPsql {
   $user = if ($envMap.ContainsKey('POSTGRES_USER') -and $envMap['POSTGRES_USER']) { $envMap['POSTGRES_USER'] } else { 'assistant' }
   $pw   = if ($envMap.ContainsKey('POSTGRES_PASSWORD')) { $envMap['POSTGRES_PASSWORD'] } else { '' }
   $esc  = $Sql.Replace('"','\"')
-  $q = '"' + $DockerExe + '" compose exec -T -e PGPASSWORD=' + $pw +
+  $q = '"' + $DockerExe + '" ' + (Get-ApComposeArgs $Cwd) + ' exec -T -e PGPASSWORD=' + $pw +
        ' postgres psql -v ON_ERROR_STOP=1 -U ' + $user + ' -d ' + $Database + ' -tAc "' + $esc + '"'
   $prev = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
   try {

@@ -40,9 +40,10 @@ $Version = (Get-Content (Join-Path $RepoRoot 'VERSION') -Raw).Trim()
 
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 if ($Label) { $stamp = "$stamp-$($Label -replace '[^A-Za-z0-9_.-]','_')" }
-$dir = if ($OutDir) { Join-Path $OutDir $stamp } else { Join-Path $script:AP_HOME "backups\$stamp" }
+$dir = if ($OutDir) { Join-Path $OutDir $stamp } else { Join-Path (Get-ApBackupDir) $stamp }
 New-Item -ItemType Directory -Force -Path $dir | Out-Null
 $dq = '"' + $docker.path + '"'
+$dc = Get-ApComposeArgs $RepoRoot
 
 Write-ApStep "Backup -> $dir"
 
@@ -50,10 +51,10 @@ function Invoke-PgDump([string]$Db, [string]$File) {
   # Volcamos a un fichero DENTRO del contenedor y lo copiamos con `docker cp`
   # (evita corromper binario al pasarlo por una tubería de cmd.exe).
   $tmp = "/tmp/ac-backup-$Db.dump"
-  $dump = "$dq compose exec -T postgres sh -c ""PGPASSWORD='$pgPass' pg_dump -U $pgUser -Fc -d $Db -f $tmp"""
+  $dump = "$dq $dc exec -T postgres sh -c ""PGPASSWORD='$pgPass' pg_dump -U $pgUser -Fc -d $Db -f $tmp"""
   if ((Invoke-ApNative $dump $RepoRoot) -ne 0) { throw "pg_dump de '$Db' falló." }
-  if ((Invoke-ApNative "$dq compose cp postgres:$tmp ""$File""" $RepoRoot) -ne 0) { throw "docker cp del dump de '$Db' falló." }
-  Invoke-ApNative "$dq compose exec -T postgres rm -f $tmp" $RepoRoot | Out-Null
+  if ((Invoke-ApNative "$dq $dc cp postgres:$tmp ""$File""" $RepoRoot) -ne 0) { throw "docker cp del dump de '$Db' falló." }
+  Invoke-ApNative "$dq $dc exec -T postgres rm -f $tmp" $RepoRoot | Out-Null
   if (-not (Test-Path $File) -or (Get-Item $File).Length -lt 100) { throw "El dump de '$Db' quedó vacío." }
 }
 
@@ -81,12 +82,14 @@ if (Test-ApContainerRunning $docker.path 'pa-n8n') {
 }
 
 # Ficheros locales
-Copy-Item (Join-Path $RepoRoot '.env') (Join-Path $dir 'env') -ErrorAction SilentlyContinue
+# Los ficheros del usuario ya no estan junto al codigo, sino en el
+# directorio de datos (%LOCALAPPDATA%\Personal Assistant).
+Copy-Item (Get-ApEnvPath) (Join-Path $dir 'env') -ErrorAction SilentlyContinue
 if (Test-Path (Join-Path $dir 'env')) {
   # restringe el ACL: solo el usuario actual
   icacls (Join-Path $dir 'env') /inheritance:r /grant:r "$($env:USERNAME):(R,W)" | Out-Null
 }
-Copy-Item (Join-Path $RepoRoot 'config')    (Join-Path $dir 'config')    -Recurse -Force -ErrorAction SilentlyContinue
+Copy-Item (Get-ApConfigDir)                (Join-Path $dir 'config')    -Recurse -Force -ErrorAction SilentlyContinue
 Copy-Item (Join-Path $RepoRoot 'workflows') (Join-Path $dir 'workflows') -Recurse -Force -ErrorAction SilentlyContinue
 Get-ChildItem (Join-Path $dir 'config') -Filter '*.example.json' -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
 

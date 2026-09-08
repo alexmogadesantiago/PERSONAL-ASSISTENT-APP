@@ -26,6 +26,7 @@ if (-not $docker.running -and $Action -in @('start','restart','status','open')) 
   $docker = Get-DockerInfo
 }
 $dq = '"' + $docker.path + '"'
+$dc = Get-ApComposeArgs $RepoRoot
 $envMap = Read-ApEnvMap $RepoRoot
 $fPort = if ($envMap.ContainsKey('FRONTEND_PORT') -and $envMap['FRONTEND_PORT']) { $envMap['FRONTEND_PORT'] } else { 3000 }
 $bPort = if ($envMap.ContainsKey('BACKEND_PORT')  -and $envMap['BACKEND_PORT'])  { $envMap['BACKEND_PORT']  } else { 8080 }
@@ -34,7 +35,7 @@ $nPort = if ($envMap.ContainsKey('N8N_PORT')      -and $envMap['N8N_PORT'])     
 switch ($Action) {
   'start' {
     Write-ApStep 'Arrancando Automation Center'
-    if ((Invoke-ApNative "$dq compose up -d" $RepoRoot) -ne 0) { exit 1 }
+    if ((Invoke-ApNative "$dq $dc up -d" $RepoRoot) -ne 0) { exit 1 }
     foreach ($c in $script:AP_CONTAINERS) {
       if (Wait-ContainerHealthy $docker.path $c 180) { Write-ApOk "$c healthy" } else { Write-ApWarn "$c no healthy todavía" }
     }
@@ -42,12 +43,12 @@ switch ($Action) {
   }
   'stop' {
     Write-ApStep 'Parando Automation Center (los datos se conservan)'
-    Invoke-ApNative "$dq compose stop" $RepoRoot | Out-Null
+    Invoke-ApNative "$dq $dc stop" $RepoRoot | Out-Null
     Write-ApOk 'Parado'
   }
   'restart' {
     Write-ApStep 'Reiniciando Automation Center'
-    Invoke-ApNative "$dq compose restart" $RepoRoot | Out-Null
+    Invoke-ApNative "$dq $dc restart" $RepoRoot | Out-Null
     Write-ApOk 'Reiniciado'
   }
   'open' { Start-Process "http://localhost:$fPort" }
@@ -55,11 +56,11 @@ switch ($Action) {
     $log = $script:AP_LOG
     Write-Host "install.log: $log"
     Start-Process notepad.exe $log -ErrorAction SilentlyContinue
-    & $env:ComSpec /c "$dq compose logs --tail=120"
+    & $env:ComSpec /c "$dq $dc logs --tail=120"
   }
   'status' {
     Write-ApStep 'Estado de Automation Center'
-    & $env:ComSpec /c "$dq compose ps"
+    & $env:ComSpec /c "$dq $dc ps"
     Write-Host ''
     $wf = Get-N8nWorkflowCount -DockerExe $docker.path -Cwd $RepoRoot
     Write-Host ("  n8n workflow_entity : {0}" -f $(if ($wf -lt 0) {'?'} else {$wf}))

@@ -35,8 +35,9 @@ $docker = Get-DockerInfo
 if ($docker.found -and $docker.running) {
   $DockerExe = $docker.path
   $dq = '"' + $DockerExe + '"'
+  $dc = Get-ApComposeArgs $RepoRoot
   Write-ApStep 'Parando y eliminando contenedores'
-  $down = "$dq compose down --remove-orphans"
+  $down = "$dq $dc down --remove-orphans"
   # -v elimina los volúmenes con nombre (postgres_data -> BD de n8n Y de
   # automation_center; n8n_data -> credenciales). SOLO con -PurgeData.
   if ($PurgeData) { $down += ' -v' }
@@ -58,7 +59,7 @@ try {
 
 if ($PurgeData) {
   Write-ApStep 'Borrando datos locales'
-  $out = Join-Path $RepoRoot 'output\marca-personal'
+  $out = Join-Path (Get-ApOutputDir) 'marca-personal'
   if (Test-Path $out) { Get-ChildItem $out -Filter *.md | Remove-Item -Force -ErrorAction SilentlyContinue }
   Write-ApOk 'Borradores eliminados'
 }

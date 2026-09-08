@@ -82,9 +82,29 @@ services:
       PROFILE_API_URL: http://profile:7777
     volumes:
       - n8n_data:/home/node/.n8n
-      - ./config:/files/config:ro
+      # config/ y output/ son del USUARIO y viven fuera del directorio de
+      # instalacion (Program Files no es escribible). PA_CONFIG_DIR y
+      # PA_OUTPUT_DIR los fija el instalador apuntando a
+      # %LOCALAPPDATA%\Personal Assistant\...; los valores por defecto son las
+      # rutas relativas de siempre, para que `docker compose up` siga
+      # funcionando tal cual desde un clon del repositorio.
+      #
+      # Sintaxis larga a proposito: una ruta absoluta de Windows con espacios
+      # ("C:/Users/.../Personal Assistant/config") es ambigua en la sintaxis
+      # corta "origen:destino", que separa por ':'.
+      - type: bind
+        source: ${PA_CONFIG_DIR:-./config}
+        target: /files/config
+        read_only: true
+        bind:
+          create_host_path: true
+      # Solo lectura y parte de la aplicacion: se queda junto al codigo.
       - ./workflows:/files/workflows:ro
-      - ./output:/files/output
+      - type: bind
+        source: ${PA_OUTPUT_DIR:-./output}
+        target: /files/output
+        bind:
+          create_host_path: true
     depends_on:
       postgres:
         condition: service_healthy
@@ -134,7 +154,13 @@ services:
       CONFIG_DIR: /config
       TZ: ${TZ}
     volumes:
-      - ./config:/config
+      # Mismo directorio de configuracion que ve n8n, aqui con escritura: este
+      # servicio es el que guarda user_profile.json.
+      - type: bind
+        source: ${PA_CONFIG_DIR:-./config}
+        target: /config
+        bind:
+          create_host_path: true
     networks:
       - assistant
     healthcheck:

@@ -89,6 +89,7 @@ function Write-EnvFile([string]$Path, [hashtable]$Values) {
     'N8N_PORT','N8N_HOST','WEBHOOK_URL','N8N_LOG_LEVEL','N8N_ENCRYPTION_KEY','',
     'N8N_API_URL','N8N_API_KEY','',
     'PROFILE_PORT','','TZ','',
+    'PA_DATA_DIR','PA_CONFIG_DIR','PA_OUTPUT_DIR','',
     'AC_API_URL','AC_SERVICE_TOKEN','',
     'TELEGRAM_CHAT_ID','TELEGRAM_NOTICIAS_TOKEN','TELEGRAM_TOKEN_MARCA','TELEGRAM_TOKEN_LABORAL','TELEGRAM_TOKEN_EMAIL','',
     'AC_ENVIRONMENT','BACKEND_PORT','FRONTEND_PORT','AC_CORS_ORIGINS','AC_CORS_ORIGIN_REGEX',
@@ -150,21 +151,30 @@ if (-not $docker.composeVersion) { throw 'Docker Compose v2 no disponible (se ne
 
 # --- 3. DIRECTORIES -------------------------------------------------
 Set-ApState 'directories'
-Write-ApStep 'Preparando directorios'
-foreach ($d in @('config','output\marca-personal')) {
-  $p = Join-Path $RepoRoot $d
-  if (-not (Test-Path $p)) { New-Item -ItemType Directory -Force -Path $p | Out-Null }
-}
-if (-not (Test-Path (Join-Path $RepoRoot 'config\user_profile.json'))) {
-  Copy-Item (Join-Path $RepoRoot 'config\user_profile.example.json') (Join-Path $RepoRoot 'config\user_profile.json')
-  Write-ApOk 'config/user_profile.json creado desde el ejemplo'
-}
-Write-ApOk 'Directorios OK'
+Write-ApStep 'Preparando directorios de datos'
+# El codigo puede estar en Program Files (solo lectura). Todo lo que cambia
+# vive en %LOCALAPPDATA%\Personal Assistant: .env, config, output, logs y
+# backups. Initialize-ApHome crea el arbol y migra el home de la v0.4.x;
+# Initialize-ApUserConfig siembra modules.json / user_profile.json desde las
+# plantillas instaladas, sin pisar lo que el usuario ya tenga.
+Initialize-ApUserConfig -AppRoot $RepoRoot
+$DataHome  = Get-ApDataHome
+$ConfigDir = Get-ApConfigDir
+$OutputDir = Get-ApOutputDir
+Write-ApOk "Datos del usuario: $DataHome"
 
 # --- 4. CONFIGURING (.env) ----------------------------------------
 Set-ApState 'configuring'
 Write-ApStep 'Configurando .env'
-$envPath = Join-Path $RepoRoot '.env'
+$envPath = Get-ApEnvPath
+# Las instalaciones anteriores dejaban el .env junto al docker-compose. Si esta
+# ahi y aun no hay uno en el directorio de datos, se mueve: contiene las claves
+# de cifrado, y perderlo obligaria a reconfigurar todas las credenciales.
+$legacyEnv = Join-Path $RepoRoot '.env'
+if ((Test-Path $legacyEnv) -and -not (Test-Path $envPath)) {
+  Move-Item $legacyEnv $envPath -Force
+  Write-ApOk "'.env' movido al directorio de datos"
+}
 $env = Read-EnvFile $envPath
 $fromConfig = @{}
 if ($ConfigFile) {
@@ -215,6 +225,27 @@ if ($needEnv) {
   Write-ApOk '.env ya existe (usa -Reconfigure para regenerarlo)'
 }
 
+# --- 4b. RUTAS DE DATOS EN EL .env -----------------------------------
+# docker-compose lee PA_CONFIG_DIR / PA_OUTPUT_DIR para los dos unicos montajes
+# con escritura. Se reescriben SIEMPRE (tambien al actualizar): si el .env viene
+# de una instalacion antigua no los trae, y sin ellos el compose caeria en las
+# rutas relativas dentro del directorio de instalacion, que puede ser Program
+# Files. Con barras normales, que es lo que espera Docker Desktop.
+$env = Read-EnvFile $envPath
+$pathVars = @{
+  PA_DATA_DIR   = ConvertTo-ApDockerPath $DataHome
+  PA_CONFIG_DIR = ConvertTo-ApDockerPath $ConfigDir
+  PA_OUTPUT_DIR = ConvertTo-ApDockerPath $OutputDir
+}
+$pathsChanged = $false
+foreach ($k in $pathVars.Keys) {
+  if (-not $env.ContainsKey($k) -or $env[$k] -ne $pathVars[$k]) { $env[$k] = $pathVars[$k]; $pathsChanged = $true }
+}
+if ($pathsChanged) {
+  Write-EnvFile $envPath $env
+  Write-ApOk 'Rutas de datos escritas en el .env'
+}
+
 # --- 5. PORTS --------------------------------------------------------
 Set-ApState 'ports'
 Write-ApStep 'Comprobando puertos'
@@ -248,17 +279,20 @@ if ($changed) {
 Write-ApOk "n8n:$n8nPort  profile:$profilePort  backend:$backendPort  frontend:$frontendPort"
 
 $dq = '"' + $DockerExe + '"'
+# El compose vive junto al codigo y el .env junto a los datos: hay que
+# decirselo a docker en cada llamada (Get-ApComposeArgs).
+$dc = Get-ApComposeArgs $RepoRoot
 
 # --- 6. BUILDING ----------------------------------------------------
 Set-ApState 'building'
 Write-ApStep 'Construyendo imágenes (puede tardar la primera vez)'
-if ((Invoke-ApNative "$dq compose build" $RepoRoot) -ne 0) { throw 'docker compose build falló' }
+if ((Invoke-ApNative "$dq $dc build" $RepoRoot) -ne 0) { throw 'docker compose build falló' }
 Write-ApOk 'Imágenes construidas'
 
 # --- 7. STARTING SERVICES ----------------------------------------
 Set-ApState 'starting-services'
 Write-ApStep 'Levantando Postgres'
-if ((Invoke-ApNative "$dq compose up -d postgres" $RepoRoot) -ne 0) { throw 'docker compose up postgres falló' }
+if ((Invoke-ApNative "$dq $dc up -d postgres" $RepoRoot) -ne 0) { throw 'docker compose up postgres falló' }
 if (-not (Wait-ContainerHealthy $DockerExe 'pa-postgres' 200)) { throw 'pa-postgres no llegó a healthy.' }
 Write-ApOk 'pa-postgres healthy'
 
@@ -269,21 +303,21 @@ if (Confirm-AcDatabase -DockerExe $DockerExe -Cwd $RepoRoot) { Write-ApOk 'autom
 else { Write-ApOk 'automation_center ya existía (conservada)' }
 
 Write-ApStep 'Levantando el resto de servicios'
-if ((Invoke-ApNative "$dq compose up -d" $RepoRoot) -ne 0) { throw 'docker compose up falló' }
+if ((Invoke-ApNative "$dq $dc up -d" $RepoRoot) -ne 0) { throw 'docker compose up falló' }
 foreach ($c in @('pa-playwright','pa-profile','pa-n8n','pa-backend','pa-frontend')) {
   if (Wait-ContainerHealthy $DockerExe $c 240) { Write-ApOk "$c healthy" }
   else { throw "$c no llegó a healthy. Revisa: docker compose logs $c" }
 }
 # Las migraciones de Alembic las aplica el entrypoint del backend (idempotente:
 # `alembic upgrade head` es no-op si ya está al día). Verificación explícita:
-$rev = (Invoke-ApNative "$dq compose exec -T backend alembic current" $RepoRoot)
+$rev = (Invoke-ApNative "$dq $dc exec -T backend alembic current" $RepoRoot)
 Write-ApOk 'Migraciones aplicadas (alembic upgrade head en el arranque del backend)'
 
 # --- 8. IMPORTING WORKFLOWS (upsert por id -> nunca duplica) --------
 Set-ApState 'importing-workflows'
 Write-ApStep 'Importando workflows'
 $before = Get-N8nWorkflowCount -DockerExe $DockerExe -Cwd $RepoRoot
-Invoke-ApNative "$dq compose exec -T n8n n8n import:workflow --separate --input=/files/workflows" $RepoRoot | Out-Null
+Invoke-ApNative "$dq $dc exec -T n8n n8n import:workflow --separate --input=/files/workflows" $RepoRoot | Out-Null
 $after = Get-N8nWorkflowCount -DockerExe $DockerExe -Cwd $RepoRoot
 Write-ApOk "Workflows importados (workflow_entity: $before -> $after)"
 if ($after -ne 4) { Write-ApLog -Level ERROR -Message "workflow_entity = $after (esperado 4). Revisa la BD de n8n." }
@@ -303,8 +337,12 @@ foreach ($k in $hc.Keys) {
 Write-ApStep 'Registrando arranque automático'
 $taskName = 'AutomationPlatform'
 $autostart = $false
+# La tarea ya no puede depender del directorio actual: el compose esta en el
+# directorio de instalacion y el .env en el de datos. Get-ApComposeArgs lleva
+# las tres rutas absolutas.
+$autostartArgs = "$dc up -d"
 try {
-  $action   = New-ScheduledTaskAction -Execute $DockerExe -Argument 'compose up -d' -WorkingDirectory $RepoRoot
+  $action   = New-ScheduledTaskAction -Execute $DockerExe -Argument $autostartArgs -WorkingDirectory $RepoRoot
   $trigger  = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
   $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -DontStopOnIdleEnd -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
   $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
@@ -313,8 +351,8 @@ try {
 } catch {
   # fallback: schtasks.exe (más permisivo con usuarios sin privilegios)
   try {
-    $tr = '"' + $DockerExe + '" compose up -d'
-    & schtasks.exe /Create /TN $taskName /TR "cmd /c cd /d `"$RepoRoot`" ^&^& $tr" /SC ONLOGON /RL LIMITED /F 2>&1 | Out-Null
+    $tr = '"' + $DockerExe + '" ' + $autostartArgs
+    & schtasks.exe /Create /TN $taskName /TR "cmd /c $tr" /SC ONLOGON /RL LIMITED /F 2>&1 | Out-Null
     if ($LASTEXITCODE -eq 0) { $autostart = $true }
   } catch { }
 }
