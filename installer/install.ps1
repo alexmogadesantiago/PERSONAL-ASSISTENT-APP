@@ -91,7 +91,7 @@ function Write-EnvFile([string]$Path, [hashtable]$Values) {
     'N8N_PORT','N8N_HOST','WEBHOOK_URL','N8N_LOG_LEVEL','N8N_ENCRYPTION_KEY','',
     'N8N_API_URL','N8N_API_KEY','',
     'PROFILE_PORT','','TZ','',
-    'PA_DATA_DIR','PA_CONFIG_DIR','PA_OUTPUT_DIR','',
+    'PA_MODE','PA_DATA_DIR','PA_CONFIG_DIR','PA_OUTPUT_DIR','',
     'AC_API_URL','AC_SERVICE_TOKEN','',
     'TELEGRAM_CHAT_ID','TELEGRAM_NOTICIAS_TOKEN','TELEGRAM_TOKEN_MARCA','TELEGRAM_TOKEN_LABORAL','TELEGRAM_TOKEN_EMAIL','',
     'AC_ENVIRONMENT','BACKEND_PORT','FRONTEND_PORT','AC_CORS_ORIGINS','AC_CORS_ORIGIN_REGEX',
@@ -237,6 +237,13 @@ if ($needEnv) {
 # Files. Con barras normales, que es lo que espera Docker Desktop.
 $env = Read-EnvFile $envPath
 $pathVars = @{
+  # Modo de despliegue. El backend sigue usando AC_ENVIRONMENT (development /
+  # testing / staging / production) para su propia validacion; PA_MODE dice
+  # como esta desplegado el conjunto, que es lo que distingue esta instalacion
+  # de un entorno de desarrollo con `docker compose up` a mano:
+  #   development      puertos abiertos al desarrollador, Vite en marcha
+  #   production-local todo en 127.0.0.1, imagenes construidas, sin nube
+  PA_MODE       = 'production-local'
   PA_DATA_DIR   = ConvertTo-ApDockerPath $DataHome
   PA_CONFIG_DIR = ConvertTo-ApDockerPath $ConfigDir
   PA_OUTPUT_DIR = ConvertTo-ApDockerPath $OutputDir

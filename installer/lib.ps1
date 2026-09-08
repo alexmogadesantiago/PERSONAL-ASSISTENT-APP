@@ -158,8 +158,15 @@ function Initialize-ApUserConfig {
   if (Test-Path $modules) { Copy-Item $modules (Join-Path $script:AP_CONFIG 'modules.json') -Force }
   $profileDst = Join-Path $script:AP_CONFIG 'user_profile.json'
   if (-not (Test-Path $profileDst)) {
-    $example = Join-Path $src 'user_profile.example.json'
-    if (Test-Path $example) { Copy-Item $example $profileDst -Force }
+    # Orden a proposito: primero el perfil REAL que la instalacion anterior
+    # dejo junto al codigo (config\user_profile.json, que antes era el que se
+    # montaba en n8n) y solo si no existe, la plantilla. Sembrar del ejemplo
+    # teniendo uno real habria borrado en silencio las preferencias del usuario
+    # al actualizar.
+    $previous = Join-Path $src 'user_profile.json'
+    $example  = Join-Path $src 'user_profile.example.json'
+    if (Test-Path $previous)     { Copy-Item $previous $profileDst -Force }
+    elseif (Test-Path $example)  { Copy-Item $example  $profileDst -Force }
   }
 }
 

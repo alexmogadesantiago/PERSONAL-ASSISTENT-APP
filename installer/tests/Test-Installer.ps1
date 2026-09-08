@@ -270,6 +270,68 @@ Assert-Contains -Haystack $issRunRaw -Needle "Result := '-Unattended';" `
 Assert-Contains -Haystack $commonRaw -Needle 'RunOnce' `
   -Name 'se conserva la reanudacion automatica tras el reinicio (RunOnce)'
 
+# --- 9b. Configuracion: nada expuesto fuera de este equipo ----------------
+Write-Host ''
+Write-Host '=== Configuracion production-local ===' -ForegroundColor Cyan
+
+# Recorre el compose anotando, para cada servicio, las lineas de su bloque
+# `ports:`. Un mapeo "5678:5678" pelado expondria n8n a toda la red local, y n8n
+# ejecuta codigo arbitrario por diseno.
+$composeLines = Get-Content (Join-Path $RepoRoot 'docker-compose.yml')
+$portsByService = @{}
+$currentService = ''
+$inPorts = $false
+foreach ($line in $composeLines) {
+  if ($line -match '^  ([a-z0-9_-]+):\s*$') {
+    $currentService = $Matches[1]
+    $portsByService[$currentService] = @()
+    $inPorts = $false
+    continue
+  }
+  if ($line -match '^\s{4}([a-z_]+):\s*$') { $inPorts = ($Matches[1] -eq 'ports'); continue }
+  if ($inPorts -and $line -match '^\s+-\s*"?([^"]+)"?\s*$' -and $currentService) {
+    $portsByService[$currentService] += $Matches[1]
+  }
+}
+
+$allPublished = @($portsByService.Values | ForEach-Object { $_ })
+Assert-True -Condition ($allPublished.Count -gt 0) `
+  -Name 'el compose publica algun puerto (control de la propia prueba)'
+$badBinds = @($allPublished | Where-Object { $_ -notmatch '^127\.0\.0\.1:' })
+Assert-True -Condition ($badBinds.Count -eq 0) `
+  -Name 'todo puerto publicado esta atado a 127.0.0.1' `
+  -Detail ($badBinds -join '; ')
+
+# Postgres y Playwright no deben publicar NADA: se hablan por la red interna.
+foreach ($svc in @('postgres', 'playwright')) {
+  $p = if ($portsByService.ContainsKey($svc)) { $portsByService[$svc] } else { @() }
+  Assert-True -Condition (@($p).Count -eq 0) `
+    -Name "$svc no publica ningun puerto al host" -Detail (@($p) -join '; ')
+}
+
+Assert-Contains -Haystack $installRaw -Needle "PA_MODE       = 'production-local'" `
+  -Name 'el instalador marca la instalacion como production-local'
+$envExample = Get-Content (Join-Path $RepoRoot '.env.example') -Raw
+Assert-Contains -Haystack $envExample -Needle 'PA_MODE' `
+  -Name 'PA_MODE esta documentado en .env.example'
+Assert-Contains -Haystack $envExample -Needle 'VITE_API_URL' `
+  -Name 'VITE_API_URL sigue siendo configurable'
+# El instalador reescribe VITE_API_URL/VITE_WS_URL si cambia el puerto.
+Assert-Contains -Haystack $installRaw -Needle "VITE_API_URL" `
+  -Name 'el instalador ajusta VITE_API_URL al puerto real del backend'
+
+# --- 9c. Comprobaciones de Docker antes de desplegar ----------------------
+$detectRaw = Get-Content (Join-Path $RepoRoot 'installer\windows\scripts\detect.ps1') -Raw
+foreach ($check in @('wsl', 'docker', 'compose_v2', 'engine_running')) {
+  Assert-Contains -Haystack $detectRaw -Needle $check -Name "la deteccion comprueba '$check'"
+}
+Assert-Contains -Haystack $bootstrapRaw -Needle 'install-wsl.ps1' `
+  -Name 'el bootstrap prepara WSL2 si falta'
+Assert-Contains -Haystack $bootstrapRaw -Needle 'install-docker.ps1' `
+  -Name 'el bootstrap instala o arranca Docker Desktop si falta'
+Assert-Contains -Haystack $bootstrapRaw -Needle 'exit 10' `
+  -Name 'un reinicio necesario se comunica con un codigo propio, no como fallo'
+
 # --- 10. Logs --------------------------------------------------------------
 Write-Host ''
 Write-Host '=== Logs ===' -ForegroundColor Cyan
