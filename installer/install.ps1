@@ -12,7 +12,9 @@
   en %LOCALAPPDATA%\Personal Assistant\data\state.json).
 
 .PARAMETER Unattended
-  No hace preguntas. Los secretos se toman de variables de entorno o de -ConfigFile.
+  Se conserva por compatibilidad con scripts existentes, pero ya no cambia
+  nada: la instalacion NUNCA pregunta. Los secretos llegan por -ConfigFile o
+  por variables de entorno, o se configuran despues desde la aplicacion.
 
 .PARAMETER ConfigFile
   Ruta a un JSON con los secretos: { "AC_NVIDIA_NIM_API_KEY": "...", "TELEGRAM_CHAT_ID": "...", ... }
@@ -208,10 +210,10 @@ if ($needEnv) {
     $fromEnvVar = [Environment]::GetEnvironmentVariable($k)
     if     ($fromConfig.ContainsKey($k)) { $val = $fromConfig[$k] }
     elseif ($fromEnvVar)                 { $val = $fromEnvVar }
-    elseif (-not $Unattended) {
-      Write-Host "   $k  —  $($spec.hint)" -ForegroundColor DarkGray
-      $val = Read-Host "   $k (Enter para dejarlo pendiente)"
-    }
+    # Aqui NO se pregunta nada. La instalacion es desatendida siempre: el
+    # usuario no deberia tener que pegar tokens en una consola. Lo que no
+    # llegue por -ConfigFile o por variable de entorno se queda vacio y se
+    # configura despues desde el launcher o el panel.
     if ($val) { $env[$k] = $val }
     elseif ($spec.ContainsKey('optional') -and $spec.optional) { $env[$k] = '' }
     else { $env[$k] = ''; $missing += $k }
@@ -219,7 +221,9 @@ if ($needEnv) {
   Write-EnvFile $envPath $env
   Write-ApOk '.env escrito'
   if ($missing.Count) {
-    foreach ($m in $missing) { Write-ApLog -Level WARN -Message "BLOCKED BY: falta $m — el stack arrancará, pero el workflow que lo usa no funcionará hasta rellenarlo en .env (ver CREDENCIALES.md)." }
+    Write-ApWarn ("Quedan credenciales por configurar: " + ($missing -join ", "))
+    Write-ApWarn 'El stack arranca igualmente. Las completas desde Personal Assistant'
+    Write-ApWarn '(Ajustes -> Credenciales) sin abrir ninguna consola. Ver CREDENCIALES.md.'
   }
 } else {
   Write-ApOk '.env ya existe (usa -Reconfigure para regenerarlo)'
@@ -342,12 +346,18 @@ foreach ($oldTask in @('AutomationPlatform','AutomationCenter')) {
   & schtasks.exe /Delete /TN $oldTask /F 2>&1 | Out-Null
 }
 $autostart = $false
-# La tarea ya no puede depender del directorio actual: el compose esta en el
-# directorio de instalacion y el .env en el de datos. Get-ApComposeArgs lleva
-# las tres rutas absolutas.
-$autostartArgs = "$dc up -d"
+# La tarea arranca el stack llamando a control.ps1, el mismo camino que el
+# acceso directo "Iniciar": ya resuelve el compose, el .env y los puertos, y
+# escribe en el log. Pasarle a docker.exe los argumentos de compose desde una
+# tarea programada obligaria a escapar rutas absolutas entre comillas dentro
+# de otra cadena entrecomillada, y eso se rompe en cuanto una ruta lleva un
+# espacio (Program Files, "Personal Assistant").
+#
+# -WindowStyle Hidden: al iniciar sesion no aparece ninguna consola.
+$autostartScript = Join-Path $RepoRoot 'installer\windows\scripts\control.ps1'
+$autostartPs = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$autostartScript`" start"
 try {
-  $action   = New-ScheduledTaskAction -Execute $DockerExe -Argument $autostartArgs -WorkingDirectory $RepoRoot
+  $action   = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $autostartPs -WorkingDirectory $RepoRoot
   $trigger  = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
   $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -DontStopOnIdleEnd -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
   $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
@@ -356,8 +366,8 @@ try {
 } catch {
   # fallback: schtasks.exe (más permisivo con usuarios sin privilegios)
   try {
-    $tr = '"' + $DockerExe + '" ' + $autostartArgs
-    & schtasks.exe /Create /TN $taskName /TR "cmd /c $tr" /SC ONLOGON /RL LIMITED /F 2>&1 | Out-Null
+    $tr = 'powershell.exe ' + $autostartPs
+    & schtasks.exe /Create /TN $taskName /TR $tr /SC ONLOGON /RL LIMITED /F 2>&1 | Out-Null
     if ($LASTEXITCODE -eq 0) { $autostart = $true }
   } catch { }
 }

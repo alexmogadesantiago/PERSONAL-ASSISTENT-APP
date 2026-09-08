@@ -82,7 +82,9 @@ $script:AP_RESUME_NAME    = 'PersonalAssistantSetupResume'
 function Register-ResumeAfterReboot {
   param([string]$BootstrapArgs = '')
   $bs = Join-Path $script:WinScripts 'bootstrap.ps1'
-  $cmd = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$bs`" -Resumed $BootstrapArgs"
+  # -WindowStyle Hidden: al reiniciar, la instalacion continua sola y en
+  # silencio. El usuario no ve una consola aparecer al iniciar sesion.
+  $cmd = "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$bs`" -Resumed $BootstrapArgs"
   New-ItemProperty -Path $script:AP_RESUME_RUNONCE -Name $script:AP_RESUME_NAME -Value $cmd -PropertyType String -Force | Out-Null
   Write-ApLog "   Continuación tras reinicio registrada (RunOnce)."
 }

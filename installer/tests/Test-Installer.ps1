@@ -230,7 +230,42 @@ Assert-True -Condition ($compose -notmatch '(?m)^\s*-\s*\./output:/files/output\
 Assert-Contains -Haystack $compose -Needle './workflows:/files/workflows:ro' `
   -Name 'workflows/ sigue montado de solo lectura junto al codigo'
 
-# --- 9. Identidad del producto --------------------------------------------
+# --- 9. La instalacion no abre consolas ni pregunta nada ------------------
+Write-Host ''
+Write-Host '=== Instalacion sin terminal ===' -ForegroundColor Cyan
+
+$installRaw = Get-Content (Join-Path $RepoRoot 'installer\install.ps1') -Raw
+Assert-True -Condition ($installRaw -notmatch 'Read-Host') `
+  -Name 'install.ps1 no pregunta nada por consola' `
+  -Detail 'queda un Read-Host en el flujo de instalacion'
+# Los tokens de Telegram se configuran despues, no durante la instalacion.
+Assert-True -Condition ($installRaw -notmatch '(?m)^\s*\$val = Read-Host') `
+  -Name 'no se piden tokens de Telegram durante la instalacion'
+Assert-Contains -Haystack $installRaw -Needle '-WindowStyle Hidden' `
+  -Name 'el arranque automatico no muestra una consola al iniciar sesion'
+Assert-Contains -Haystack $installRaw -Needle 'control.ps1' `
+  -Name 'la tarea de arranque reutiliza control.ps1 en vez de duplicar el compose'
+
+$bootstrapRaw = Get-Content (Join-Path $RepoRoot 'installer\windows\scripts\bootstrap.ps1') -Raw
+Assert-Contains -Haystack $bootstrapRaw -Needle "`$deployArgs += '-Unattended'" `
+  -Name 'bootstrap despliega siempre en modo desatendido'
+Assert-True -Condition ($bootstrapRaw -match 'Register-ResumeAfterReboot -BootstrapArgs "-Unattended') `
+  -Name 'la reanudacion tras el reinicio tambien es desatendida'
+
+$commonRaw = Get-Content (Join-Path $RepoRoot 'installer\windows\scripts\common.ps1') -Raw
+Assert-Contains -Haystack $commonRaw -Needle 'powershell.exe -NoProfile -WindowStyle Hidden' `
+  -Name 'la continuacion tras reiniciar (RunOnce) no muestra ventana'
+
+$issRunRaw = Get-Content (Join-Path $RepoRoot 'installer\windows\PersonalAssistant.iss') -Raw
+Assert-Contains -Haystack $issRunRaw -Needle 'waituntilterminated runhidden' `
+  -Name 'el instalador ejecuta el bootstrap con la ventana oculta'
+Assert-Contains -Haystack $issRunRaw -Needle "Result := '-Unattended';" `
+  -Name 'el .exe llama al bootstrap en modo desatendido siempre'
+# El mecanismo de reanudacion tras reinicio de Windows debe seguir intacto.
+Assert-Contains -Haystack $commonRaw -Needle 'RunOnce' `
+  -Name 'se conserva la reanudacion automatica tras el reinicio (RunOnce)'
+
+# --- 10. Identidad del producto -------------------------------------------
 Write-Host ''
 Write-Host '=== Producto: Personal Assistant ===' -ForegroundColor Cyan
 

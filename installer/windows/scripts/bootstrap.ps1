@@ -12,7 +12,10 @@
     NO se duplica lógica.
 
 .PARAMETER Resumed        Se está reanudando tras un reinicio.
-.PARAMETER Unattended     Sin preguntas (secretos por -ConfigFile o variables).
+.PARAMETER Unattended     Se conserva por compatibilidad: la instalacion nunca
+                          pregunta. Los secretos llegan por -ConfigFile o por
+                          variables de entorno; el resto se configura despues
+                          desde la aplicacion.
 .PARAMETER ConfigFile     JSON con secretos para modo desatendido.
 .PARAMETER SkipBrowser    No abrir el navegador al terminar.
 .PARAMETER DetectOnly     Solo detección; no cambia nada.
@@ -53,7 +56,7 @@ if (-not $SkipEnvironmentPrep -and -not $report.wsl.ready) {
   Write-ApStep 'WSL2 no está listo — configurando (requiere administrador)'
   $code = Invoke-ElevatedScript 'install-wsl.ps1'
   if ($code -eq 10) {
-    Register-ResumeAfterReboot -BootstrapArgs "$(if($Unattended){'-Unattended'}) $(if($SkipBrowser){'-SkipBrowser'})"
+    Register-ResumeAfterReboot -BootstrapArgs "-Unattended $(if($SkipBrowser){'-SkipBrowser'})"
     Write-ApLog -Level WARN -Message 'REINICIO NECESARIO: Windows debe reiniciarse para activar la virtualización.'
     Write-ApLog -Level WARN -Message 'Tras reiniciar e iniciar sesión, la instalación CONTINUARÁ SOLA (RunOnce).'
     exit 10
@@ -74,7 +77,7 @@ if (-not $SkipEnvironmentPrep -and (-not $report.docker.installed -or -not $repo
     $code = Invoke-ElevatedScript 'install-docker.ps1'
   }
   if ($code -eq 11) {
-    Register-ResumeAfterReboot -BootstrapArgs "$(if($Unattended){'-Unattended'}) $(if($SkipBrowser){'-SkipBrowser'})"
+    Register-ResumeAfterReboot -BootstrapArgs "-Unattended $(if($SkipBrowser){'-SkipBrowser'})"
     Write-ApLog -Level WARN -Message 'Docker Desktop instalado. Cierra sesión y vuelve a entrar; la instalación continuará sola.'
     exit 10
   }
@@ -84,7 +87,9 @@ if (-not $SkipEnvironmentPrep -and (-not $report.docker.installed -or -not $repo
 # --- 4. Despliegue (reutiliza installer/install.ps1) -----------------
 Write-ApStep 'Desplegando Personal Assistant'
 $deployArgs = @('-NoProfile','-ExecutionPolicy','Bypass','-File', (Join-Path $RepoRoot 'installer\install.ps1'))
-if ($Unattended)  { $deployArgs += '-Unattended' }
+# Siempre desatendido: ni el instalador ni el bootstrap abren un dialogo de
+# consola. Lo que falte se configura luego desde el launcher o el panel.
+$deployArgs += '-Unattended'
 if ($ConfigFile)  { $deployArgs += @('-ConfigFile', $ConfigFile) }
 if ($SkipBrowser) { $deployArgs += '-SkipBrowser' }
 $p = Start-Process -FilePath 'powershell.exe' -ArgumentList $deployArgs -Wait -PassThru -NoNewWindow

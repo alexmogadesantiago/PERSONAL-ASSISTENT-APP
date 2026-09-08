@@ -21,7 +21,7 @@ if "%RC%"=="0" (
   echo   Instalacion completada. Puedes cerrar esta ventana.
 ) else (
   echo   La instalacion no termino correctamente ^(codigo %RC%^).
-  echo   Revisa el log:  %LOCALAPPDATA%\AutomationPlatform\install.log
+  echo   Revisa el log:  %LOCALAPPDATA%\Personal Assistant\logs\install.log
 )
 echo.
 pause

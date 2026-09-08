@@ -142,10 +142,14 @@ Root: HKCU; Subkey: "Software\Personal Assistant"; ValueType: string; ValueName:
 Root: HKCU; Subkey: "Software\Automation Center"; Flags: dontcreatekey uninsdeletekey
 
 [Run]
+; runhidden: el usuario no ve ninguna ventana de PowerShell durante la
+; preparacion del entorno. El progreso se sigue en la barra del asistente
+; (StatusMsg) y, con detalle, en
+; %LOCALAPPDATA%\Personal Assistant\logs\install.log.
 Filename: "{#PwShell}"; \
   Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{#ScriptsDir}\bootstrap.ps1"" {code:BootstrapArgs}"; \
-  WorkingDir: "{app}"; Flags: runascurrentuser waituntilterminated; \
-  StatusMsg: "Preparando el entorno (WSL2, Docker, servicios). Puede tardar varios minutos..."; \
+  WorkingDir: "{app}"; Flags: runascurrentuser waituntilterminated runhidden; \
+  StatusMsg: "Preparando el entorno: WSL2, Docker, base de datos, n8n, Playwright y el panel. La primera vez descarga varios GB y puede tardar 15-25 minutos..."; \
   Tasks: runsetup; Check: not WizardSilent
 
 [UninstallRun]
@@ -165,9 +169,11 @@ var
   GNeedRestart: Boolean;
   GPriorDir: String;
 
+// La instalacion nunca pregunta nada por consola: -Unattended va siempre.
+// En modo silencioso ademas no se abre el navegador al terminar.
 function BootstrapArgs(Param: String): String;
 begin
-  Result := '';
+  Result := '-Unattended';
   if WizardSilent then
     Result := '-Unattended -SkipBrowser';
 end;
