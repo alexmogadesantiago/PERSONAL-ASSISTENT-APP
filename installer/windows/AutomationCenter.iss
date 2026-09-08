@@ -33,6 +33,9 @@ DisableProgramGroupPage=yes
 AllowNoIcons=yes
 OutputDir={#RepoRoot}\dist
 OutputBaseFilename=AutomationCenter-Setup
+; Lista de TODO lo que entra en el .exe. build\verify-package.ps1 la audita
+; (ningun *.pem, .claude\, worktree, .venv ni web.py puede aparecer aqui).
+OutputManifestFile=Setup-Manifest.txt
 SetupIconFile=assets\automation-center.ico
 UninstallDisplayIcon={app}\installer\windows\assets\automation-center.ico
 UninstallDisplayName={#AppName}
@@ -57,8 +60,60 @@ Name: "trayautostart"; Description: "Iniciar el icono de bandeja al iniciar sesi
 Name: "desktopicon"; Description: "Crear acceso directo en el escritorio"; GroupDescription: "Extras:"; Flags: unchecked
 
 [Files]
-Source: "{#RepoRoot}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion; \
-  Excludes: "*\.git\*,\.git,\.git\*,\dist,\dist\*,\.env,*.log,\node_modules,\node_modules\*,*\node_modules\*,*\node_modules,*\.venv\*,*\.venv,*\__pycache__\*,*\.pytest_cache\*,\config\user_profile.json,\output\*\*.md"
+; ---------------------------------------------------------------------------
+;  LISTA BLANCA. Se empaqueta EXCLUSIVAMENTE lo que el producto necesita para
+;  arrancar: docker-compose, los cuatro contextos de build, los workflows, el
+;  esquema SQL, los scripts del instalador y la documentacion de usuario.
+;
+;  Antes esto era una sola entrada `Source: "{#RepoRoot}\*"` con una lista de
+;  exclusiones, y esa lista no cubria *.pem, .claude\ (13 worktrees completos
+;  del repositorio) ni web.py. Una lista negra falla en silencio en cuanto
+;  aparece un fichero nuevo en la raiz; una lista blanca falla de forma
+;  ruidosa, que es lo que queremos en un artefacto que se distribuye.
+;  build\verify-package.ps1 comprueba el .exe ya compilado.
+;
+;  NUNCA se empaqueta:  *.pem *.key *.p12 *.pfx id_rsa* .env .git .claude
+;                       worktrees .venv node_modules __pycache__ dist
+;                       ni nada de la raiz que no este listado aqui.
+;  El Excludes de cada entrada recursiva repite la regla por si acaso.
+; ---------------------------------------------------------------------------
+#define NeverShip "*.pem,*.key,*.p12,*.pfx,id_rsa*,.env,.env.local,.env.backup*,.git,.claude,worktrees,node_modules,__pycache__,*.pyc,.pytest_cache,.venv,venv,*.egg-info,.coverage,htmlcov,*.log"
+
+; --- raiz: solo los ficheros que el stack lee en tiempo de ejecucion ---
+Source: "{#RepoRoot}\docker-compose.yml"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#RepoRoot}\VERSION";            DestDir: "{app}"; Flags: ignoreversion
+; El .dockerignore de la raiz es el del contexto de build del backend: es lo
+; que mantiene .env y *.pem fuera del demonio de Docker. Sin el, un
+; `docker compose build` enviaria los secretos al daemon.
+Source: "{#RepoRoot}\.dockerignore";      DestDir: "{app}"; Flags: ignoreversion
+Source: "{#RepoRoot}\.env.example";       DestDir: "{app}"; Flags: ignoreversion
+Source: "{#RepoRoot}\README.md";          DestDir: "{app}"; Flags: ignoreversion
+Source: "{#RepoRoot}\INSTALL.md";         DestDir: "{app}"; Flags: ignoreversion
+Source: "{#RepoRoot}\CREDENCIALES.md";    DestDir: "{app}"; Flags: ignoreversion
+Source: "{#RepoRoot}\ARCHITECTURE.md";    DestDir: "{app}"; Flags: ignoreversion
+Source: "{#RepoRoot}\DEVELOPMENT.md";     DestDir: "{app}"; Flags: ignoreversion
+
+; --- contextos de build de Docker ---
+Source: "{#RepoRoot}\backend\*";    DestDir: "{app}\backend";    Flags: recursesubdirs createallsubdirs ignoreversion; Excludes: "{#NeverShip}"
+Source: "{#RepoRoot}\frontend\*";   DestDir: "{app}\frontend";   Flags: recursesubdirs createallsubdirs ignoreversion; Excludes: "{#NeverShip},dist,coverage,.vercel"
+Source: "{#RepoRoot}\playwright\*"; DestDir: "{app}\playwright"; Flags: recursesubdirs createallsubdirs ignoreversion; Excludes: "{#NeverShip}"
+Source: "{#RepoRoot}\profile\*";    DestDir: "{app}\profile";    Flags: recursesubdirs createallsubdirs ignoreversion; Excludes: "{#NeverShip}"
+
+; --- plantillas de arranque (los datos vivos van al perfil del usuario) ---
+Source: "{#RepoRoot}\config\modules.json";              DestDir: "{app}\config"; Flags: ignoreversion
+Source: "{#RepoRoot}\config\user_profile.example.json"; DestDir: "{app}\config"; Flags: ignoreversion
+Source: "{#RepoRoot}\workflows\*.json";                 DestDir: "{app}\workflows";      Flags: ignoreversion
+Source: "{#RepoRoot}\scripts\db-init\*.sql";            DestDir: "{app}\scripts\db-init"; Flags: ignoreversion
+
+; --- instalador y control de servicios ---
+Source: "{#RepoRoot}\installer\lib.ps1";               DestDir: "{app}\installer"; Flags: ignoreversion
+Source: "{#RepoRoot}\installer\install.ps1";           DestDir: "{app}\installer"; Flags: ignoreversion
+Source: "{#RepoRoot}\installer\uninstall.ps1";         DestDir: "{app}\installer"; Flags: ignoreversion
+Source: "{#RepoRoot}\installer\windows\scripts\*.ps1"; DestDir: "{app}\installer\windows\scripts"; Flags: ignoreversion
+Source: "{#RepoRoot}\installer\windows\assets\*";      DestDir: "{app}\installer\windows\assets"; Flags: ignoreversion
+
+; --- documentacion de usuario ---
+Source: "{#RepoRoot}\docs\*.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\Automation Center";        Filename: "{#PwShell}"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{#ScriptsDir}\control.ps1"" open"; IconFilename: "{app}\installer\windows\assets\automation-center.ico"; Comment: "Abrir el panel de Automation Center"
