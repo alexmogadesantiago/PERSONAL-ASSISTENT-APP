@@ -295,6 +295,24 @@ if (Test-Path $launcherPath) {
     -Name 'no se usan propiedades de WinForms que no existen en PowerShell 5.1'
 }
 
+$trayPath = Join-Path $RepoRoot 'installer\windows\scripts\tray.ps1'
+if (Test-Path $trayPath) {
+  $tr = Get-Content $trayPath -Raw
+  Assert-Contains -Haystack $tr -Needle 'Abrir Personal Assistant' `
+    -Name 'la bandeja ofrece abrir Personal Assistant'
+  Assert-Contains -Haystack $tr -Needle 'launcher.ps1' `
+    -Name 'la bandeja abre el launcher, no solo el navegador'
+  foreach ($item in @('Abrir el panel web', 'Estado', 'Reiniciar', 'Detener', 'Salir')) {
+    Assert-Contains -Haystack $tr -Needle $item -Name "la bandeja tiene la entrada '$item'"
+  }
+  Assert-Contains -Haystack $tr -Needle 'add_MouseDoubleClick' `
+    -Name 'el doble clic en la bandeja hace algo'
+  # Ninguna entrada de la bandeja debe dejar una consola abierta salvo las que
+  # el usuario pide explicitamente (backup, que es interactivo).
+  Assert-True -Condition (([regex]::Matches($tr, '-NoExit')).Count -le 1) `
+    -Name 'la bandeja no abre consolas salvo la copia de seguridad'
+}
+
 $vbsPath = Join-Path $RepoRoot 'installer\windows\scripts\hidden.vbs'
 Assert-True -Condition (Test-Path $vbsPath) -Name 'existe el shim que evita el parpadeo de consola'
 
