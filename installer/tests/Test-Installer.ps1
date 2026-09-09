@@ -367,6 +367,37 @@ $issRaw2 = Get-Content (Join-Path $RepoRoot 'installer\windows\PersonalAssistant
 Assert-True -Condition ($issRaw2 -notmatch '-File \{#ScriptsDir\}') `
   -Name 'los accesos directos entrecomillan la ruta del script'
 
+# --- 9d-bis. El .env no puede faltar en silencio --------------------------
+Write-Host ''
+Write-Host '=== Credenciales obligatorias ===' -ForegroundColor Cyan
+
+# Un `docker compose up` sin --env-file interpola cadenas vacias, solo avisa con
+# un warning y levanta el stack ENTERO con las credenciales en blanco: n8n entra
+# en bucle con "no PostgreSQL user name specified in startup packet" mientras
+# postgres se declara healthy (ignora POSTGRES_* si el volumen ya existe). Pasó
+# de verdad. Dos defensas: compose exige las variables, y nuestros scripts pasan
+# siempre --env-file.
+$composeReq = Get-Content (Join-Path $RepoRoot 'docker-compose.yml') -Raw
+foreach ($v in @('POSTGRES_DB', 'POSTGRES_USER', 'POSTGRES_PASSWORD', 'N8N_ENCRYPTION_KEY')) {
+  Assert-True -Condition ($composeReq -match ('\$\{' + $v + ':\?')) `
+    -Name "compose exige $v y se niega a arrancar sin ella"
+  # Ni una sola interpolacion suelta de esa variable: bastaria una para que el
+  # servicio arrancase con el valor vacio.
+  Assert-True -Condition ($composeReq -notmatch ('\$\{' + $v + '\}')) `
+    -Name "no queda ninguna interpolacion de $v sin proteger"
+}
+
+$libEnv = Get-Content $LibPath -Raw
+Assert-True -Condition ($libEnv -notmatch 'if \(Test-Path \$envFile\) \{ \$flags') `
+  -Name 'Get-ApComposeArgs ya no omite --env-file cuando el fichero falta'
+Assert-Contains -Haystack $libEnv -Needle "'--env-file'" `
+  -Name 'Get-ApComposeArgs pasa siempre --env-file'
+# %LOCALAPPDATA% no esta definido en todos los contextos (el Programador de
+# tareas es uno). Sin respaldo, lib.ps1 lanzaba excepcion al calcular el
+# directorio de datos ANTES de existir un log donde contarlo.
+Assert-Contains -Haystack $libEnv -Needle "GetFolderPath('LocalApplicationData')" `
+  -Name 'el directorio de datos se resuelve aunque falte %LOCALAPPDATA%'
+
 # --- 9e. Comandos nativos que "fallan" siendo normal ----------------------
 Write-Host ''
 Write-Host '=== Comandos nativos y $ErrorActionPreference ===' -ForegroundColor Cyan

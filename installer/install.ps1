@@ -385,9 +385,16 @@ $autostart = $false
 #
 # -WindowStyle Hidden: al iniciar sesion no aparece ninguna consola.
 $autostartScript = Join-Path $RepoRoot 'installer\windows\scripts\control.ps1'
-$autostartPs = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$autostartScript`" start"
+# Se lanza por wscript + hidden.vbs, el MISMO camino que el acceso directo del
+# menu Inicio. Con `powershell.exe -File` la tarea puede completarse sin llegar
+# a ejecutar el script (visto en una maquina real: codigo 1, cero salida, cero
+# log), y entonces el stack no arranca por la via buena y cualquier otro
+# `docker compose up` lo levanta sin credenciales.
+$autostartShim = Join-Path $RepoRoot 'installer\windows\scripts\hidden.vbs'
+$autostartExe  = Join-Path $env:WINDIR 'System32\wscript.exe'
+$autostartPs   = "`"$autostartShim`" `"$autostartScript`" start"
 try {
-  $action   = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $autostartPs -WorkingDirectory $RepoRoot
+  $action   = New-ScheduledTaskAction -Execute $autostartExe -Argument $autostartPs -WorkingDirectory $RepoRoot
   $trigger  = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
   $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -DontStopOnIdleEnd -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
   $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
@@ -396,7 +403,7 @@ try {
 } catch {
   # fallback: schtasks.exe (más permisivo con usuarios sin privilegios)
   try {
-    $tr = 'powershell.exe ' + $autostartPs
+    $tr = '"' + $autostartExe + '" ' + $autostartPs
     & $env:ComSpec /c "schtasks.exe /Create /TN $taskName /TR ""$tr"" /SC ONLOGON /RL LIMITED /F >nul 2>&1" | Out-Null
     if ($LASTEXITCODE -eq 0) { $autostart = $true }
   } catch { }

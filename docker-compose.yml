@@ -6,9 +6,9 @@ services:
     container_name: pa-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:?FALTA_EN_EL_ENV}
+      POSTGRES_USER: ${POSTGRES_USER:?FALTA_EN_EL_ENV}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?FALTA_EN_EL_ENV}
       TZ: ${TZ}
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -33,11 +33,11 @@ services:
       DB_TYPE: postgresdb
       DB_POSTGRESDB_HOST: postgres
       DB_POSTGRESDB_PORT: 5432
-      DB_POSTGRESDB_DATABASE: ${POSTGRES_DB}
-      DB_POSTGRESDB_USER: ${POSTGRES_USER}
-      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_POSTGRESDB_DATABASE: ${POSTGRES_DB:?FALTA_EN_EL_ENV}
+      DB_POSTGRESDB_USER: ${POSTGRES_USER:?FALTA_EN_EL_ENV}
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD:?FALTA_EN_EL_ENV}
       # --- n8n runtime ---
-      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?FALTA_EN_EL_ENV}
       N8N_HOST: ${N8N_HOST:-localhost}
       N8N_PORT: 5678
       N8N_PROTOCOL: http
@@ -189,7 +189,7 @@ services:
       # Optional: allow Vercel preview URLs for one project (scoped regex, never ".*").
       AC_CORS_ORIGIN_REGEX: ${AC_CORS_ORIGIN_REGEX:-}
       # Automation Center's own DB, on the same postgres server as n8n's.
-      AC_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/automation_center
+      AC_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:?FALTA_EN_EL_ENV}:${POSTGRES_PASSWORD:?FALTA_EN_EL_ENV}@postgres:5432/automation_center
       AC_JWT_SECRET: ${AC_JWT_SECRET}
       AC_CREDENTIAL_ENCRYPTION_KEY: ${AC_CREDENTIAL_ENCRYPTION_KEY}
       AC_N8N_BASE_URL: ${AC_N8N_BASE_URL:-http://n8n:5678}

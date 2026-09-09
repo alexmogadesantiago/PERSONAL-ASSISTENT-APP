@@ -27,11 +27,27 @@ $ErrorActionPreference = 'Stop'
 # de Windows es un problema conocido de permisos y fsync, y un volumen con
 # nombre sobrevive igual a desinstalar, actualizar y reiniciar. backups\ es la
 # via para sacarlos a disco.
+# %LOCALAPPDATA% NO siempre esta definido. El Programador de tareas arranca la
+# tarea de inicio de sesion con un bloque de entorno que puede no traerla, y
+# entonces `Join-Path $env:LOCALAPPDATA ...` lanza excepcion (StrictMode +
+# ErrorActionPreference = 'Stop') ANTES de que exista un log donde contarlo: la
+# tarea moria con codigo 1 y cero diagnostico, el stack no arrancaba por la via
+# buena, y cualquier otro `docker compose up` lo levantaba sin credenciales.
+# GetFolderPath lo resuelve del perfil del usuario, sin depender del entorno.
+function Get-ApLocalAppData {
+  if ($env:LOCALAPPDATA) { return $env:LOCALAPPDATA }
+  $fromApi = [Environment]::GetFolderPath('LocalApplicationData')
+  if ($fromApi) { return $fromApi }
+  if ($env:USERPROFILE) { return (Join-Path $env:USERPROFILE 'AppData\Local') }
+  throw 'No se pudo determinar %LOCALAPPDATA%: no hay donde guardar los datos.'
+}
+$script:AP_LOCAL_APPDATA = Get-ApLocalAppData
+
 $script:AP_DATA_HOME = if ($env:PERSONAL_ASSISTANT_DATA) { $env:PERSONAL_ASSISTANT_DATA }
                        elseif ($env:AUTOMATION_PLATFORM_HOME) { $env:AUTOMATION_PLATFORM_HOME }  # compat 0.4.x
-                       else { Join-Path $env:LOCALAPPDATA 'Personal Assistant' }
+                       else { Join-Path $script:AP_LOCAL_APPDATA 'Personal Assistant' }
 # Nombre historico del directorio de datos (v0.4.x). Se migra al nuevo si existe.
-$script:AP_LEGACY_HOME = Join-Path $env:LOCALAPPDATA 'AutomationPlatform'
+$script:AP_LEGACY_HOME = Join-Path $script:AP_LOCAL_APPDATA 'AutomationPlatform'
 
 $script:AP_HOME    = $script:AP_DATA_HOME     # alias historico, mismo directorio
 $script:AP_CONFIG  = Join-Path $script:AP_DATA_HOME 'config'
@@ -366,10 +382,24 @@ function Start-DockerDesktop {
 function Get-ApComposeArgs {
   param([Parameter(Mandatory)][string] $AppRoot)
   $compose = Join-Path $AppRoot 'docker-compose.yml'
+
+  # --env-file va SIEMPRE. Antes se omitia si el fichero no existia, y eso es
+  # justo lo que no se puede hacer: sin el, compose interpola cadenas vacias,
+  # solo avisa con un warning y levanta el stack con TODAS las credenciales en
+  # blanco (n8n arranca en bucle con "no PostgreSQL user name specified").
+  # Pasandolo siempre, un .env que falte es un error inmediato y legible.
+  #
+  # En un clon del repositorio el .env vive junto al docker-compose; se usa ese
+  # si el del directorio de datos todavia no existe.
   $envFile = $script:AP_ENV
+  if (-not (Test-Path $envFile)) {
+    $repoEnv = Join-Path $AppRoot '.env'
+    if (Test-Path $repoEnv) { $envFile = $repoEnv }
+  }
+
   # `$args` es una variable automatica de PowerShell: usamos otro nombre.
-  $flags = @('-f', ('"' + $compose + '"'), '--project-directory', ('"' + $AppRoot + '"'))
-  if (Test-Path $envFile) { $flags += @('--env-file', ('"' + $envFile + '"')) }
+  $flags = @('-f', ('"' + $compose + '"'), '--project-directory', ('"' + $AppRoot + '"'),
+             '--env-file', ('"' + $envFile + '"'))
   return ('compose ' + ($flags -join ' '))
 }
 
