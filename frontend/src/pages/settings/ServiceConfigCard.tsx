@@ -22,11 +22,16 @@ import type { ServiceConfig } from "@/api/types";
 
 const HELP: Record<string, { url?: string; secret?: string }> = {
   n8n: {
-    url: "Public HTTPS URL of your n8n, e.g. https://n8n.midominio.com. A local Docker n8n is not reachable from a cloud backend.",
+    url:
+      "Base URL of your n8n. In a local install it is the one the installer already " +
+      "set: http://n8n:5678. Only a cloud backend needs a public HTTPS URL, because " +
+      "it cannot reach an n8n running inside your Docker network.",
     secret: "n8n → Settings → n8n API → Create an API key.",
   },
   playwright: {
-    url: "Public HTTPS URL of the scraper sidecar, e.g. https://playwright.midominio.com.",
+    url:
+      "Base URL of the scraper sidecar. Locally that is http://playwright:3000; a " +
+      "cloud backend needs a public HTTPS URL instead.",
   },
 };
 

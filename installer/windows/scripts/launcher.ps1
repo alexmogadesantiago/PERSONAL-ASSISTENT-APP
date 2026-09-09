@@ -315,6 +315,12 @@ $btnN8n = New-Button 'Abrir n8n' 268 $by2 100 { Start-Process "http://127.0.0.1:
 # rellenar sin abrir un terminal.
 function Show-SettingsDialog {
   $fields = @(
+    # AC_PROFILE_ID es el UNICO sitio donde esta variable se puede rellenar sin
+    # abrir un terminal. El perfil vive en Postgres y los workflows lo piden en
+    # ejecucion a /api/profiles/runtime?profile_id=..., pero ese id tiene que
+    # llegarle a n8n por su entorno, y el entorno sale de este .env. Sin el, el
+    # nodo "Perfil (API)" de los cuatro workflows falla.
+    @{ key = 'AC_PROFILE_ID';           label = 'ID del perfil activo';  secret = $false }
     @{ key = 'TELEGRAM_CHAT_ID';        label = 'Chat ID de Telegram';   secret = $false }
     @{ key = 'TELEGRAM_NOTICIAS_TOKEN'; label = 'Bot Noticias';          secret = $true }
     @{ key = 'TELEGRAM_TOKEN_MARCA';    label = 'Bot Marca Personal';    secret = $true }
@@ -324,8 +330,8 @@ function Show-SettingsDialog {
   $current = Read-ApEnvMap $RepoRoot
 
   $dlg = New-Object System.Windows.Forms.Form
-  $dlg.Text = 'Personal Assistant - credenciales de Telegram'
-  $dlg.ClientSize = New-Object System.Drawing.Size(470, 300)
+  $dlg.Text = 'Personal Assistant - ajustes de las automatizaciones'
+  $dlg.ClientSize = New-Object System.Drawing.Size(470, 340)
   $dlg.StartPosition = 'CenterParent'
   $dlg.FormBorderStyle = 'FixedDialog'
   $dlg.MaximizeBox = $false; $dlg.MinimizeBox = $false
@@ -333,14 +339,14 @@ function Show-SettingsDialog {
   $dlg.Font = $form.Font
 
   $help = New-Object System.Windows.Forms.Label
-  $help.Text = "Los tokens los da @BotFather. Deja un campo vacio para no tocarlo.`nNo se muestran los valores ya guardados."
+  $help.Text = "El ID del perfil esta en el panel, en Perfiles: es el identificador que`n" + "aparece en la direccion al abrirlo. Los tokens los da @BotFather.`n" + "Deja un campo vacio para no tocarlo; los valores guardados no se muestran."
   $help.Location = New-Object System.Drawing.Point(18, 12)
-  $help.Size = New-Object System.Drawing.Size(430, 36)
+  $help.Size = New-Object System.Drawing.Size(430, 46)
   $help.ForeColor = [System.Drawing.Color]::FromArgb(110, 110, 110)
   $dlg.Controls.Add($help)
 
   $boxes = @{}
-  $fy = 58
+  $fy = 68
   foreach ($f in $fields) {
     $lbl = New-Object System.Windows.Forms.Label
     $lbl.Text = $f.label

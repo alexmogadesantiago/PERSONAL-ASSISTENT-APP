@@ -64,7 +64,7 @@ def catalog() -> ProfileCatalogOut:
 @router.get("/runtime", response_model=ProfileRuntimeOut)
 def runtime_profile(
     request: Request,
-    profile_id: uuid.UUID | None = None,
+    profile_id: str | None = None,
     db: Session = Depends(get_db),
     x_ac_service_token: str | None = Header(default=None, alias="X-AC-Service-Token"),
 ) -> ProfileRuntimeOut:
@@ -81,15 +81,35 @@ def runtime_profile(
     * an automation presenting the service token must name a `profile_id`. The
       token belongs to the installation, not to a person, so it is never allowed
       to mean "whoever happens to be first".
+
+    `profile_id` is taken as text and parsed here rather than annotated as a
+    UUID, for one reason: n8n builds the query string from `$env.AC_PROFILE_ID`,
+    and when that variable is unset the URL ends in a bare `?profile_id=`. An
+    empty value is not the same as an absent one for FastAPI, so the request
+    died at validation with a 422 about UUID lengths - hiding the 400 below,
+    which is the message that actually tells the operator what to do. Empty now
+    means "not named"; a non-empty value that is not a UUID is still refused.
     """
+    requested: uuid.UUID | None = None
+    if profile_id is not None and profile_id.strip():
+        try:
+            requested = uuid.UUID(profile_id.strip())
+        except ValueError:
+            raise HTTPException(
+                status_code=422, detail="profile_id must be a UUID"
+            ) from None
+
     presented = (x_ac_service_token or "").strip()
     if presented and ai_token.verify(db, presented):
-        if profile_id is None:
+        if requested is None:
             raise HTTPException(
                 status_code=400,
-                detail="an automation must name the profile_id it wants",
+                detail=(
+                    "an automation must name the profile_id it wants "
+                    "(set AC_PROFILE_ID for n8n)"
+                ),
             )
-        profile = db.get(Profile, profile_id)
+        profile = db.get(Profile, requested)
         if profile is None:
             raise HTTPException(status_code=404, detail="profile not found")
     else:
@@ -101,8 +121,8 @@ def runtime_profile(
             else None,
             db=db,
         )
-        if profile_id is not None:
-            profile = _guard(lambda: svc.get_profile(db, user.id, profile_id))
+        if requested is not None:
+            profile = _guard(lambda: svc.get_profile(db, user.id, requested))
         else:
             profile = svc.effective_profile(db, user.id)
             if profile is None:

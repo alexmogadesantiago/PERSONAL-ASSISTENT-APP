@@ -237,6 +237,33 @@ def test_an_automation_must_name_the_profile_it_wants(client):
     assert named.json()["profile"]["location"] == "Lleida"
 
 
+def test_an_unset_ac_profile_id_gets_the_message_that_explains_it(client):
+    """n8n builds the URL from $env.AC_PROFILE_ID; unset means `?profile_id=`.
+
+    An empty value is not an absent one for FastAPI, so this used to die at
+    validation with a 422 about UUID lengths - which tells the operator
+    nothing. It must reach the same 400 as a missing parameter, and the rule
+    itself must not soften: naming a profile is still required.
+    """
+    token = register(client)
+    create_profile(client, token)
+    service_token = client.post("/api/ai/service-token", headers=auth(token)).json()["token"]
+
+    empty = client.get(
+        "/api/profiles/runtime?profile_id=",
+        headers={"X-AC-Service-Token": service_token},
+    )
+    assert empty.status_code == 400, "an empty AC_PROFILE_ID must not look like a parse error"
+    assert "AC_PROFILE_ID" in empty.json()["detail"], "the message must name the variable to set"
+
+    # A value that is present but not a UUID is still refused.
+    junk = client.get(
+        "/api/profiles/runtime?profile_id=not-a-uuid",
+        headers={"X-AC-Service-Token": service_token},
+    )
+    assert junk.status_code == 422
+
+
 def test_a_wrong_service_token_is_refused(client):
     token = register(client)
     created = create_profile(client, token)
