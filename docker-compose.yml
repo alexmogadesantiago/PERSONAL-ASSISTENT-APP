@@ -185,7 +185,8 @@ services:
       AC_ENVIRONMENT: ${AC_ENVIRONMENT:-production}
       AC_DEBUG: "false"
       AC_API_PORT: 8080
-      AC_CORS_ORIGINS: ${AC_CORS_ORIGINS:-http://localhost:3000}
+      # Ambos origenes: el navegador trata localhost y 127.0.0.1 como distintos.
+      AC_CORS_ORIGINS: ${AC_CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
       # Optional: allow Vercel preview URLs for one project (scoped regex, never ".*").
       AC_CORS_ORIGIN_REGEX: ${AC_CORS_ORIGIN_REGEX:-}
       # Automation Center's own DB, on the same postgres server as n8n's.

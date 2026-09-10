@@ -197,7 +197,11 @@ if ($needEnv) {
   if (-not $env.ContainsKey('TZ'))            { $env['TZ'] = 'Europe/Madrid' }
   if (-not $env.ContainsKey('N8N_API_URL'))   { $env['N8N_API_URL'] = 'http://localhost:5678' }
   if (-not $env.ContainsKey('AC_ENVIRONMENT')){ $env['AC_ENVIRONMENT'] = 'production' }
-  if (-not $env.ContainsKey('AC_CORS_ORIGINS')) { $env['AC_CORS_ORIGINS'] = 'http://localhost:3000' }
+  # Los DOS origenes. Para el navegador 'localhost' y '127.0.0.1' son origenes
+  # distintos: con solo uno, abrir el panel por la otra forma deja la peticion
+  # a /api/health sin cabecera Access-Control-Allow-Origin y el panel dice
+  # 'Backend unreachable' aunque el backend responda 200.
+  if (-not $env.ContainsKey('AC_CORS_ORIGINS')) { $env['AC_CORS_ORIGINS'] = 'http://localhost:3000,http://127.0.0.1:3000' }
   if (-not $env.ContainsKey('AC_N8N_BASE_URL'))  { $env['AC_N8N_BASE_URL'] = 'http://n8n:5678' }
   if (-not $env.ContainsKey('AC_MONITOR_INTERVAL_SECONDS')) { $env['AC_MONITOR_INTERVAL_SECONDS'] = '5' }
 
@@ -301,7 +305,7 @@ $n8nPort = $ports['N8N_PORT']; $profilePort = $ports['PROFILE_PORT']
 $backendPort = $ports['BACKEND_PORT']; $frontendPort = $ports['FRONTEND_PORT']
 if ($changed) {
   $env['WEBHOOK_URL'] = "http://localhost:$n8nPort/"
-  $env['AC_CORS_ORIGINS'] = "http://localhost:$frontendPort"
+  $env['AC_CORS_ORIGINS'] = "http://localhost:$frontendPort,http://127.0.0.1:$frontendPort"
   $env['VITE_API_URL'] = "http://localhost:$backendPort"
   $env['VITE_WS_URL']  = "ws://localhost:$backendPort"
   Write-EnvFile $envPath $env
