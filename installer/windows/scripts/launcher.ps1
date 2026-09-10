@@ -413,7 +413,11 @@ function Show-SettingsDialog {
 
   if ($dlg.ShowDialog($form) -eq [System.Windows.Forms.DialogResult]::OK) {
     Set-Banner 'Credenciales guardadas. Reiniciando n8n...' ([System.Drawing.Color]::FromArgb(190, 130, 0))
-    Start-Control -Action 'restart' -Message 'Credenciales guardadas. Reiniciando los servicios...'
+    # 'start' (docker compose up -d), no 'restart'. Un restart para y arranca el
+    # contenedor que ya existe, y el entorno se fija al CREARLO: la variable
+    # nueva no llegaria a n8n. `up -d` recrea solo los contenedores cuya
+    # configuracion ha cambiado.
+    Start-Control -Action 'start' -Message 'Configuracion guardada. Aplicando a los servicios...'
   }
   $dlg.Dispose()
 }
