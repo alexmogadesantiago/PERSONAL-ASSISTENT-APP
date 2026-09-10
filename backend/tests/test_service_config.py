@@ -16,6 +16,7 @@ import pytest
 
 from app.models import ServiceConfig, SystemEvent
 from app.services import service_config as svc
+from tests.conftest import demote_to_plain_user
 
 SECRET = "n8n_api_key_super_secret_value"
 
@@ -236,10 +237,15 @@ def test_api_rejects_an_unknown_service(client):
     assert r.status_code == 404
 
 
-def test_api_write_is_admin_only(client):
-    """The first registered user is admin; a second one is not."""
+def test_api_write_is_admin_only(client, db_session):
+    """Writing settings still demands the admin role.
+
+    Registration grants that role to everyone now, so the ordinary user this
+    test needs is demoted on purpose - the point is that the guard refuses a
+    non-admin, not who happens to be one."""
     _login(client)
     token = _login(client, username="regular", email="regular@example.com")
+    demote_to_plain_user(db_session, "regular")
 
     r = client.put(
         "/api/services/config/n8n",

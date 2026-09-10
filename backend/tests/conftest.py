@@ -157,3 +157,18 @@ def settings_factory(monkeypatch):
         return cfg
 
     return _apply
+
+
+# --------------------------------------------------------- plain users ------
+# Registration grants every account the admin role, so a test that wants to
+# prove the admin guard actually bites has to take that role away on purpose.
+# Doing it here keeps the guard tests honest: they exercise a real non-admin
+# session rather than asserting against a role the API no longer hands out.
+def demote_to_plain_user(db_session, username: str) -> None:
+    """Turn an already-registered account into an ordinary user."""
+    from app.models import User, UserRole
+
+    user = db_session.query(User).filter(User.username == username).one()
+    user.role = UserRole.user
+    db_session.commit()
+    db_session.expire_all()

@@ -68,8 +68,22 @@ def register_user(
         # Same response whether it was the email or the username that collided.
         raise AuthError("already_exists", "email or username already in use", 409)
 
-    # First account bootstraps the platform as admin.
-    effective_role = role or (UserRole.admin if user_count(db) == 0 else UserRole.user)
+    # Every account is an administrator.
+    #
+    # This is a single-operator product: it installs on one machine, its data
+    # lives in that user's profile and every service listens on 127.0.0.1. The
+    # accounts in it are the same person on different devices, not a tenant
+    # with staff, so the old rule - first account admin, the rest ordinary
+    # users needing `manage.py promote-admin` from a terminal - only produced
+    # an account that could not reach Settings and no way to fix it without a
+    # console, which is exactly what this product removed.
+    #
+    # The authorisation checks stay where they are: Settings still demands the
+    # admin role, `require_admin` is untouched, and a caller without it is
+    # still refused. What changes is who gets granted the role, not whether it
+    # is enforced. An explicit `role=` still wins, so the CLI and the tests can
+    # still create a non-admin user on purpose.
+    effective_role = role or UserRole.admin
 
     user = User(
         email=email,

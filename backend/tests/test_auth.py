@@ -25,11 +25,14 @@ def test_register_first_user_is_admin(client):
     assert body["user"]["role"] == "admin"  # first account
 
 
-def test_register_second_user_is_plain_user(client):
+def test_every_registered_user_is_an_administrator(client):
+    """Not just the first one: this is a single-operator product and the
+    accounts in it are the same person on another device. An account that
+    could not reach Settings had no way to be promoted without a terminal."""
     _reg(client)
     r = _reg(client)
     assert r.status_code == 201
-    assert r.json()["user"]["role"] == "user"
+    assert r.json()["user"]["role"] == "admin"
 
 
 def test_password_policy_enforced(client):

@@ -17,6 +17,7 @@ import pytest
 
 from app.services.ai import registry
 from tests import ai_stubs
+from tests.conftest import demote_to_plain_user
 
 PAYLOAD = {"categoria": "cita", "prioridad": "alta"}
 SCHEMA = {
@@ -159,9 +160,12 @@ def test_an_unknown_provider_is_a_404(client):
     assert r.status_code == 404
 
 
-def test_writes_are_admin_only(client):
-    register(client)  # the first account is the admin
+def test_writes_are_admin_only(client, db_session):
+    register(client)
     member = register(client, username="member", email="member@example.com")
+    # Registration hands out the admin role, so the non-admin this test needs
+    # has to be demoted on purpose. The guard itself is unchanged.
+    demote_to_plain_user(db_session, "member")
 
     assert client.get("/api/ai/config", headers=auth(member)).status_code == 200
     assert client.put("/api/ai/config", headers=auth(member), json={}).status_code == 403

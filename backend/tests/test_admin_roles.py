@@ -41,6 +41,21 @@ def auth(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
+def register_plain(client, db_session, username: str, email: str) -> str:
+    """Register, then take the admin role away.
+
+    Registration grants admin to every account now, so the ordinary user these
+    tests need has to be demoted deliberately. What is under test is that the
+    guard refuses a non-admin - not who happens to hold the role.
+    """
+    token = register(client, username, email)
+    user = db_session.query(User).filter(User.username == username).one()
+    user.role = UserRole.user
+    db_session.commit()
+    db_session.expire_all()
+    return token
+
+
 def role_of(db_session, username: str) -> UserRole:
     db_session.expire_all()
     user = db_session.query(User).filter(User.username == username).one()
@@ -50,17 +65,23 @@ def role_of(db_session, username: str) -> UserRole:
 # ------------------------------------------------------- the API decides ---
 
 
-def test_the_first_account_is_admin_and_the_second_is_not(client):
+def test_every_account_is_an_administrator(client):
+    """Not only the first one.
+
+    This installs on one machine for one operator; a second account is the same
+    person on another device. The old rule left that account unable to open
+    Settings and no way to fix it without a terminal.
+    """
     owner = register(client, "owner", "owner@example.com")
     member = register(client, "member", "member@example.com")
 
     assert client.get("/api/auth/me", headers=auth(owner)).json()["role"] == "admin"
-    assert client.get("/api/auth/me", headers=auth(member)).json()["role"] == "user"
+    assert client.get("/api/auth/me", headers=auth(member)).json()["role"] == "admin"
 
 
-def test_a_plain_user_cannot_write_any_administrative_setting(client):
+def test_a_plain_user_cannot_write_any_administrative_setting(client, db_session):
     register(client, "owner", "owner@example.com")
-    member = register(client, "member", "member@example.com")
+    member = register_plain(client, db_session, "member", "member@example.com")
 
     # AI: provider, model, fallback and the credentials behind them
     assert client.put("/api/ai/config", headers=auth(member), json={}).status_code == 403
@@ -127,7 +148,9 @@ def test_registration_ignores_a_role_the_caller_tries_to_set(client):
         },
     )
     assert r.status_code in (200, 201), r.text
-    assert r.json()["user"]["role"] == "user"
+    # The field is not in the schema, so it is dropped; the role comes from the
+    # server. It happens to be admin now, but never because the caller asked.
+    assert r.json()["user"]["role"] == "admin"
 
 
 def test_there_is_no_endpoint_that_writes_a_role(client):
@@ -143,7 +166,7 @@ def test_there_is_no_endpoint_that_writes_a_role(client):
 
 def test_promote_makes_a_user_an_administrator(client, cli, db_session, capsys):
     register(client, "owner", "owner@example.com")
-    register(client, "alexmogadesantiago", "alex@example.com")
+    register_plain(client, db_session, "alexmogadesantiago", "alex@example.com")
     assert role_of(db_session, "alexmogadesantiago") is UserRole.user
 
     assert cli(["promote-admin", "alexmogadesantiago"]) == 0
@@ -179,7 +202,7 @@ def test_an_unknown_user_is_an_error_not_a_silent_no_op(client, cli, capsys):
 
 def test_the_last_administrator_cannot_be_demoted(client, cli, db_session, capsys):
     register(client, "owner", "owner@example.com")
-    register(client, "member", "member@example.com")
+    register_plain(client, db_session, "member", "member@example.com")
 
     # Losing the only admin would lock the panel for everyone.
     assert cli(["demote-admin", "owner"]) == 2
@@ -191,15 +214,15 @@ def test_demotion_works_once_a_second_administrator_exists(client, cli, db_sessi
     register(client, "owner", "owner@example.com")
     register(client, "member", "member@example.com")
 
-    assert cli(["promote-admin", "member"]) == 0
+    # Both are administrators from the start, so no promotion is needed first.
     assert cli(["demote-admin", "owner"]) == 0
     assert role_of(db_session, "owner") is UserRole.user
     assert role_of(db_session, "member") is UserRole.admin
 
 
-def test_listing_shows_roles_and_never_a_password_hash(client, cli, capsys):
+def test_listing_shows_roles_and_never_a_password_hash(client, cli, capsys, db_session):
     register(client, "owner", "owner@example.com")
-    register(client, "member", "member@example.com")
+    register_plain(client, db_session, "member", "member@example.com")
 
     assert cli(["list-users"]) == 0
     out = capsys.readouterr().out
@@ -214,7 +237,7 @@ def test_listing_shows_roles_and_never_a_password_hash(client, cli, capsys):
 
 def test_a_role_change_is_written_to_the_audit_log(client, cli, db_session):
     register(client, "owner", "owner@example.com")
-    register(client, "member", "member@example.com")
+    register_plain(client, db_session, "member", "member@example.com")
     cli(["promote-admin", "member"])
 
     from app.models import SystemEvent
@@ -231,7 +254,7 @@ def test_a_role_change_is_written_to_the_audit_log(client, cli, db_session):
     assert event.meta["via"] == "cli"
 
 
-def test_a_promotion_applies_to_the_token_the_user_already_holds(client, cli):
+def test_a_promotion_applies_to_the_token_the_user_already_holds(client, cli, db_session):
     """No re-login: `require_admin` reads the database, not the JWT claim.
 
     This is what makes the fix usable in production - the operator promotes the
@@ -239,7 +262,7 @@ def test_a_promotion_applies_to_the_token_the_user_already_holds(client, cli):
     Settings on the next click.
     """
     register(client, "owner", "owner@example.com")
-    member = register(client, "member", "member@example.com")
+    member = register_plain(client, db_session, "member", "member@example.com")
     assert client.put("/api/ai/config", headers=auth(member), json={}).status_code == 403
 
     assert cli(["promote-admin", "member"]) == 0
