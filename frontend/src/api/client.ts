@@ -47,17 +47,28 @@ function extractMessage(payload: unknown, fallback: string): { message: string; 
     const p = payload as Record<string, unknown>;
     const d = p.detail;
     if (typeof d === "string") return { message: d };
+    // The array test comes FIRST: an array is also an object in JavaScript, so
+    // the object branch below used to swallow FastAPI's validation list and
+    // fall through to the generic fallback. That turned a precise "password
+    // must be at least 10 characters" into "Request failed (422)".
+    if (Array.isArray(d) && d.length) {
+      // FastAPI validation error list: [{loc:["body","password"], msg:"..."}]
+      const first = d[0] as Record<string, unknown>;
+      if (typeof first?.msg === "string") {
+        // Pydantic prefixes value errors with "Value error, "; the field name
+        // is more useful to the reader than that.
+        const msg = first.msg.replace(/^Value error,\s*/, "");
+        const loc = Array.isArray(first.loc) ? first.loc : [];
+        const field = loc.length ? String(loc[loc.length - 1]) : "";
+        return { message: field && !msg.includes(field) ? `${field}: ${msg}` : msg };
+      }
+    }
     if (d && typeof d === "object") {
       const dd = d as Record<string, unknown>;
       return {
         message: typeof dd.message === "string" ? dd.message : fallback,
         code: typeof dd.code === "string" ? dd.code : undefined,
       };
-    }
-    if (Array.isArray(d) && d.length) {
-      // FastAPI validation error list
-      const first = d[0] as Record<string, unknown>;
-      if (typeof first?.msg === "string") return { message: first.msg };
     }
     if (typeof p.message === "string") return { message: p.message };
   }
