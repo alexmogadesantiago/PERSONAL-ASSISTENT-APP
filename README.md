@@ -1,5 +1,13 @@
 # Personal Assistant
 
+<p align="center">
+  <a href="docs/assets/personal-assistant-3.0.mp4">
+    <img src="docs/assets/personal-assistant-3.0.gif" alt="Personal Assistant 3.0: Command Center, prioridad explicada, confirmación, Telegram, Calendar y automatizaciones" width="800">
+  </a>
+  <br>
+  <sub>24 s de recorrido con datos ficticios (los del modo demo) · <a href="docs/assets/personal-assistant-3.0.mp4">ver con sonido (MP4)</a></sub>
+</p>
+
 **Un asistente personal con IA que vive en tu PC.** Lee tu correo y te dice qué importa (y por qué), conoce tu calendario y tus fechas límite, te propone acciones que **tú confirmas**, te habla por Telegram y automatiza tareas con n8n sin que tengas que abrir n8n.
 
 Todo corre **en local** (Windows + Docker). Sin cloud, sin SaaS, sin suscripciones. Tus credenciales y tus datos no salen de tu equipo.
