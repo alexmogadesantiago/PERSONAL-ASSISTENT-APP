@@ -189,6 +189,21 @@ class N8nService:
             )
         )
 
+    async def create_workflow(self, body: dict) -> dict:
+        return await self._request("POST", "/api/v1/workflows", json=body)
+
+    async def update_workflow(self, workflow_id: str, body: dict) -> dict:
+        return await self._request("PUT", f"/api/v1/workflows/{workflow_id}", json=body)
+
+    async def delete_workflow(self, workflow_id: str) -> dict:
+        return await self._request("DELETE", f"/api/v1/workflows/{workflow_id}")
+
+    async def trigger_webhook(self, path: str, payload: dict | None = None) -> dict:
+        """POST to a production webhook (the workflow must be active). Used for
+        "Run now" on panel-built automations, which compile a secret webhook."""
+        data = await self._request("POST", f"/webhook/{path}", auth=False, json=payload or {})
+        return data if isinstance(data, dict) else {"message": str(data or "")}
+
     async def list_executions(
         self, *, workflow_id: str | None = None, status: str | None = None, limit: int = 50
     ) -> list[dict]:

@@ -1,18 +1,18 @@
 <!doctype html>
-<html lang="en" class="">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="color-scheme" content="light dark" />
-    <meta name="description" content="Automation Center — control plane for automations, profiles, credentials and monitoring." />
-    <title>Automation Center</title>
+    <meta name="color-scheme" content="dark light" />
+    <meta name="description" content="Personal Assistant — the control centre for an AI assistant that runs your automations." />
+    <title>Personal Assistant</title>
     <script>
       // Apply theme before first paint to avoid a flash.
       try {
         var t = localStorage.getItem("ac.theme");
-        var dark = t === "dark" || (!t && window.matchMedia("(prefers-color-scheme: dark)").matches);
-        if (dark) document.documentElement.classList.add("dark");
+        var light = t === "light" || (!t && window.matchMedia("(prefers-color-scheme: light)").matches);
+        if (light) document.documentElement.classList.add("light");
       } catch (e) {}
     </script>
   </head>

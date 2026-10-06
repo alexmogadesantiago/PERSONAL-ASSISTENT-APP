@@ -150,3 +150,94 @@ def test_node_references_resolve(path):
             assert referenced in names, (
                 f"{path.name}: {node['name']!r} references missing node {referenced!r}"
             )
+
+
+# --------------------------------------------------- error handling ---------
+
+ERROR_WORKFLOW_ID = "pa00errorhandler"
+ASSISTANTS = [p for p in WORKFLOWS if not p.name.startswith("00-")]
+COMPOSE = WORKFLOW_DIR.parent / "docker-compose.yml"
+
+
+def test_the_error_handler_workflow_exists():
+    handler = _load(WORKFLOW_DIR / "00-error-handler.json")
+    assert handler["id"] == ERROR_WORKFLOW_ID
+    types = {n["type"] for n in handler["nodes"]}
+    assert "n8n-nodes-base.errorTrigger" in types
+    # it must not name itself as its own error workflow (n8n would loop)
+    assert handler["settings"].get("errorWorkflow") in (None, "")
+    blob = json.dumps(handler, ensure_ascii=False)
+    assert "/api/automations/events" in blob, "failures must reach the panel's activity trail"
+
+
+@pytest.mark.parametrize("path", ASSISTANTS, ids=lambda p: p.name)
+def test_every_assistant_reports_failures_to_the_error_handler(path):
+    settings = _load(path).get("settings", {})
+    assert settings.get("errorWorkflow") == ERROR_WORKFLOW_ID, (
+        f"{path.name}: a failure would only be visible inside n8n"
+    )
+
+
+@pytest.mark.parametrize("path", ASSISTANTS, ids=lambda p: p.name)
+def test_every_assistant_validates_its_configuration_first(path):
+    """The config check must sit right after every trigger, before any call."""
+    wf = _load(path)
+    triggers = [n["name"] for n in wf["nodes"] if "trigger" in n["type"].lower()]
+    assert triggers
+    for t in triggers:
+        targets = [l["node"] for b in wf["connections"][t]["main"] for l in b or []]
+        firsts = set(targets)
+        # the manual Gmail test path goes trigger -> Gmail fetch -> check
+        for name in list(firsts):
+            node_type = next(n["type"] for n in wf["nodes"] if n["name"] == name)
+            if node_type == "n8n-nodes-base.gmail":
+                firsts |= {l["node"] for b in wf["connections"][name]["main"] for l in b or []}
+        assert "Comprobar configuracion" in firsts, f"{path.name}: {t!r} skips the config check"
+
+
+#: n8n credentials are per-instance: a reference in committed JSON only works
+#: where the user creates that credential. The only ones the product asks the
+#: user to create are the Google OAuth pair (see the panel's Credentials page).
+_ALLOWED_N8N_CREDENTIALS = {"gmailOAuth2", "googleCalendarOAuth2Api"}
+
+
+@pytest.mark.parametrize("path", WORKFLOWS, ids=lambda p: p.name)
+def test_only_the_google_oauth_credentials_are_n8n_credentials(path):
+    for node in _nodes(path):
+        for ctype in (node.get("credentials") or {}):
+            assert ctype in _ALLOWED_N8N_CREDENTIALS, (
+                f"{path.name}: {node['name']!r} needs n8n credential {ctype!r}; "
+                "Telegram and the platform API go through $env so a fresh install works"
+            )
+
+
+@pytest.mark.parametrize("path", WORKFLOWS, ids=lambda p: p.name)
+def test_retry_is_never_combined_with_continue_on_error(path):
+    """n8n's retry only fires when the node throws; continue-on-error stops it
+    throwing, so the pair silently means 'no retry'."""
+    for node in _nodes(path):
+        assert not (node.get("retryOnFail") and node.get("onError")), (
+            f"{path.name}: {node['name']!r} sets retryOnFail and onError"
+        )
+
+
+@pytest.mark.parametrize("path", WORKFLOWS, ids=lambda p: p.name)
+def test_every_env_var_a_workflow_reads_reaches_n8n(path):
+    """`$env.X` with no `X:` in n8n's compose environment is always empty."""
+    if not COMPOSE.exists():
+        # The backend image's test stage only copies backend/ and workflows/.
+        pytest.skip("docker-compose.yml is not in this build context")
+    compose = COMPOSE.read_text(encoding="utf-8")
+    n8n_block = compose.split("\n  n8n:\n", 1)[1].split("\n  playwright:\n", 1)[0]
+    used = set(re.findall(r"\$env\.([A-Z0-9_]+)", path.read_text(encoding="utf-8")))
+    # the config check reads its list dynamically ($env[k]); take the keys
+    for node in _nodes(path):
+        if node["name"] == "Comprobar configuracion":
+            block = node["parameters"]["jsCode"].split("const requeridas = {", 1)[1].split("};", 1)[0]
+            declared = set(re.findall(r"^\s+([A-Z0-9_]+):", block, re.M))
+            assert declared, "config check declares no variables"
+            used |= declared
+    for var in sorted(used):
+        assert re.search(rf"^\s+{var}:", n8n_block, re.M), (
+            f"{path.name} reads $env.{var} but docker-compose does not pass it to n8n"
+        )

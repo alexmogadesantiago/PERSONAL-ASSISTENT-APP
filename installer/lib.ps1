@@ -83,8 +83,10 @@ $script:AP_STEPS = @(
 # Contenedores del stack completo (Fase 1 + Personal Assistant).
 $script:AP_CONTAINERS = @('pa-postgres','pa-n8n','pa-playwright','pa-profile','pa-backend','pa-frontend')
 
-# IDs de los 4 workflows que deben existir siempre (no se duplican: import upsert por id).
-$script:AP_WORKFLOW_IDS = @('0ikHqQCWMke67aoI','pa01email000001','pa02laboral00001','pa04marcapersonal')
+# IDs de los workflows del producto que deben existir siempre (no se duplican:
+# import upsert por id). pa00errorhandler es el Error workflow de los otros
+# cuatro (settings.errorWorkflow): sin el, un fallo no avisa a nadie.
+$script:AP_WORKFLOW_IDS = @('pa00errorhandler','0ikHqQCWMke67aoI','pa01email000001','pa02laboral00001','pa04marcapersonal')
 
 function Initialize-ApHome {
   # Barato e idempotente: lo llama Write-ApLog en cada linea.
@@ -570,6 +572,20 @@ function Get-N8nWorkflowCount {
   $r = Invoke-ApPsql -DockerExe $DockerExe -Cwd $Cwd -Database $db -Sql 'SELECT count(*) FROM workflow_entity'
   if ($r.code -ne 0 -or $r.out -notmatch '^\d+$') { return -1 }
   [int]$r.out
+}
+
+# Workflows del producto que faltan en n8n. Se comprueba por id y no por el
+# total de workflow_entity: el usuario puede tener workflows propios y eso no
+# es un fallo de la instalacion. $null = no se pudo consultar la BD.
+function Get-ApMissingWorkflowIds {
+  param([string]$DockerExe, [string]$Cwd)
+  $envMap = Read-ApEnvMap $Cwd
+  $db = if ($envMap.ContainsKey('POSTGRES_DB') -and $envMap['POSTGRES_DB']) { $envMap['POSTGRES_DB'] } else { 'assistant' }
+  $ids = ($script:AP_WORKFLOW_IDS | ForEach-Object { "'$_'" }) -join ','
+  $r = Invoke-ApPsql -DockerExe $DockerExe -Cwd $Cwd -Database $db -Sql "SELECT coalesce(string_agg(id, ','), '') FROM workflow_entity WHERE id IN ($ids)"
+  if ($r.code -ne 0) { return $null }
+  $present = @("$($r.out)" -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+  return @($script:AP_WORKFLOW_IDS | Where-Object { $present -notcontains $_ })
 }
 
 # --- Generación de secretos ------------------------------------------

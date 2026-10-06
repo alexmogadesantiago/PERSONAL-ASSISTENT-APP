@@ -1,5 +1,7 @@
 # Personal Assistant
 
+> **v3.0** - un asistente personal con IA: lee y prioriza tu correo (y explica por qué), conoce tu día, propone acciones que tú confirmas, te habla por Telegram y automatiza con n8n sin que tengas que abrirlo. Todo local. Ver [docs/DEMO.md](docs/DEMO.md) y [docs/V3-AUDIT.md](docs/V3-AUDIT.md).
+
 Aplicación de escritorio para Windows: se instala con un `.exe` y **se ejecuta
 entera en tu PC**. Sin AWS, sin Oracle Cloud, sin Render, sin SSH y sin abrir
 una terminal.
@@ -34,6 +36,11 @@ El de Email necesita además OAuth de Google. Todo el detalle en
 | Documento | Para qué |
 |---|---|
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Cómo encaja todo y por qué: componentes, configuración, modelo de salud, seguridad |
+| [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) | Gmail, IA, Telegram y n8n: cómo se conectan, permisos y comandos del bot |
+| [docs/SECURITY.md](docs/SECURITY.md) | Credenciales, persona en el bucle, qué ve la IA y qué se queda en local |
+| [docs/DEMO.md](docs/DEMO.md) | Modo demo, vista de presentación y guion de 5 minutos para el TDR |
+| [docs/TESTING.md](docs/TESTING.md) | Niveles de prueba (mock / integración / servicio real) y qué se ha probado de verdad |
+| [docs/V3-AUDIT.md](docs/V3-AUDIT.md) | Auditoría de la v2.0, decisiones de la v3.0 e informe final |
 | [docs/DEPLOYMENT-LOCAL.md](docs/DEPLOYMENT-LOCAL.md) | **Empieza aquí**: instalar, usar, actualizar y desinstalar la aplicación Windows |
 | [docs/INSTALLATION.md](docs/INSTALLATION.md) | Instalación y primer arranque (asistente de configuración) |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Cómo encaja la capa de escritorio: instalador, launcher, bandeja, datos |
@@ -105,7 +112,7 @@ Servicios (todos en localhost, solo accesibles desde tu equipo):
 Luego:
 
 1. Abre **http://localhost:5678** y crea la cuenta de propietario (local).
-2. Verás los 4 workflows importados.
+2. Verás los 5 workflows importados (4 asistentes + «Sistema - Gestor de errores»).
 3. Ajusta tu perfil en **http://localhost:7777**.
 4. Abre cada workflow y pulsa **Execute workflow** para probarlo.
 5. Activa (toggle) los que quieras dejar en automático.

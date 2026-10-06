@@ -2,36 +2,71 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Personal Assistant design tokens (v0.6).
+ *
+ * Identity: quiet graphite surfaces, one accent ("iris", a muted violet) for
+ * brand and focus, and a teal "signal" reserved for AI moments. Status colours
+ * are desaturated: they signal, they do not shout. Dark is the reference skin;
+ * light is a first-class equal, not an afterthought.
+ *
+ * Channels are space-separated RGB so Tailwind can apply `/ <alpha-value>`.
+ * Elevation is expressed with borders first and shadows second.
+ */
 :root {
-  --c-bg: 247 248 250;
-  --c-surface: 255 255 255;
-  --c-surface-2: 244 245 248;
-  --c-border: 224 227 233;
-  --c-muted: 107 114 128;
-  --c-fg: 17 24 39;
-  --c-brand: 79 70 229;
-  --c-brand-fg: 255 255 255;
-  --c-ok: 22 163 74;
-  --c-warn: 202 138 4;
-  --c-danger: 220 38 38;
-  --c-info: 37 99 235;
-  color-scheme: light;
+  --c-bg: 10 11 14;
+  --c-surface: 17 18 23;
+  --c-surface-2: 24 26 32;
+  --c-surface-3: 32 35 42;
+  --c-border: 38 41 50;
+  --c-border-strong: 54 58 70;
+  --c-muted: 148 154 168;
+  --c-subtle: 134 140 154;
+  --c-fg: 236 238 243;
+  --c-brand: 139 125 245;
+  --c-brand-fg: 10 11 14;
+  --c-accent: 72 204 190;
+  --c-ok: 74 196 132;
+  --c-warn: 226 168 78;
+  --c-danger: 236 104 112;
+  --c-info: 102 160 240;
+  --shadow-color: 0 0 0;
+  --shadow-strength: 0.45;
+
+  /* motion */
+  --motion-fast: 120ms;
+  --motion-base: 200ms;
+  --motion-slow: 320ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  /* stacking: header < tab bar < overlays < palette < toasts */
+  --z-header: 30;
+  --z-tabbar: 40;
+  --z-overlay: 50;
+  --z-palette: 70;
+  --z-toast: 80;
+  color-scheme: dark;
 }
 
-html.dark {
-  --c-bg: 12 14 20;
-  --c-surface: 21 24 33;
-  --c-surface-2: 28 32 43;
-  --c-border: 42 47 61;
-  --c-muted: 148 156 172;
-  --c-fg: 233 236 242;
-  --c-brand: 129 122 246;
-  --c-brand-fg: 12 14 20;
-  --c-ok: 52 199 108;
-  --c-warn: 234 179 8;
-  --c-danger: 248 113 113;
-  --c-info: 96 165 250;
-  color-scheme: dark;
+html.light {
+  --c-bg: 246 247 249;
+  --c-surface: 255 255 255;
+  --c-surface-2: 242 243 246;
+  --c-surface-3: 233 235 240;
+  --c-border: 226 228 234;
+  --c-border-strong: 205 209 218;
+  --c-muted: 82 89 104;
+  --c-subtle: 98 104 118;
+  --c-fg: 18 20 27;
+  --c-brand: 104 88 224;
+  --c-brand-fg: 255 255 255;
+  --c-accent: 8 110 100;
+  --c-ok: 14 112 66;
+  --c-warn: 138 86 6;
+  --c-danger: 190 40 52;
+  --c-info: 30 90 220;
+  --shadow-color: 22 24 33;
+  --shadow-strength: 0.12;
+  color-scheme: light;
 }
 
 * {
@@ -45,33 +80,168 @@ body,
 }
 
 body {
-  @apply bg-bg text-fg font-sans antialiased;
+  @apply bg-bg font-sans text-fg antialiased;
+  font-feature-settings: "cv11", "ss01", "ss03";
+  text-rendering: optimizeLegibility;
 }
 
 :focus-visible {
-  outline: 2px solid rgb(var(--c-brand));
+  outline: 2px solid rgb(var(--c-brand) / 0.9);
   outline-offset: 2px;
+  border-radius: 6px;
+}
+
+::selection {
+  background: rgb(var(--c-brand) / 0.3);
 }
 
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
+::-webkit-scrollbar-track {
+  background: transparent;
+}
 ::-webkit-scrollbar-thumb {
-  background: rgb(var(--c-border));
-  border-radius: 6px;
+  background: rgb(var(--c-border-strong) / 0.7);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 999px;
 }
 
 @layer components {
   .card {
-    @apply rounded-xl border border-border bg-surface shadow-sm;
+    @apply rounded-2xl border border-border bg-surface;
+  }
+  .card-interactive {
+    @apply card transition duration-200 hover:-translate-y-px hover:border-border-strong hover:shadow-elev-2;
+  }
+  .panel {
+    @apply rounded-2xl border border-border bg-surface shadow-elev-1;
   }
   .input {
-    @apply w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-fg
-      placeholder:text-muted focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/30
-      disabled:opacity-50;
+    @apply w-full rounded-xl border border-border bg-surface-2 px-3 py-2 text-sm text-fg
+      transition placeholder:text-subtle focus:border-brand/70 focus:bg-surface focus:outline-none
+      focus:ring-4 focus:ring-brand/15 disabled:opacity-50;
   }
   .label {
-    @apply mb-1 block text-xs font-medium uppercase tracking-wide text-muted;
+    @apply mb-1.5 block text-xs font-medium text-muted;
+  }
+  .eyebrow {
+    @apply text-[11px] font-semibold uppercase tracking-[0.12em] text-subtle;
+  }
+  .divider {
+    @apply h-px w-full bg-border;
+  }
+  .kbd {
+    @apply inline-flex h-5 min-w-[20px] items-center justify-center rounded-md border border-border-strong
+      bg-surface-2 px-1 font-sans text-[10px] font-medium text-muted;
+  }
+  /* AI moments: the only place the signal gradient appears. */
+  .ai-surface {
+    background:
+      radial-gradient(120% 140% at 0% 0%, rgb(var(--c-brand) / 0.16), transparent 55%),
+      radial-gradient(120% 140% at 100% 100%, rgb(var(--c-accent) / 0.12), transparent 55%),
+      rgb(var(--c-surface));
+  }
+  .ai-text {
+    background: linear-gradient(90deg, rgb(var(--c-brand)), rgb(var(--c-accent)));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .hairline-grid {
+    background-image:
+      linear-gradient(rgb(var(--c-border) / 0.5) 1px, transparent 1px),
+      linear-gradient(90deg, rgb(var(--c-border) / 0.5) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+}
+
+@layer utilities {
+  .animate-in-up {
+    animation: pa-in-up 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .animate-in-fade {
+    animation: pa-in-fade 200ms ease-out both;
+  }
+  .animate-in-msg {
+    animation: pa-in-msg 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .animate-in-scale {
+    animation: pa-in-scale 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .animate-sheet {
+    animation: pa-sheet 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .animate-drawer {
+    animation: pa-drawer 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .animate-shimmer {
+    background: linear-gradient(
+      90deg,
+      rgb(var(--c-surface-2)) 0%,
+      rgb(var(--c-surface-3)) 40%,
+      rgb(var(--c-surface-2)) 80%
+    );
+    background-size: 200% 100%;
+    animation: pa-shimmer 1.4s ease-in-out infinite;
+  }
+  .animate-flow {
+    background-size: 200% 100%;
+    animation: pa-flow 1.6s linear infinite;
+  }
+  .stagger > * {
+    animation: pa-in-up 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .stagger > *:nth-child(2) { animation-delay: 30ms; }
+  .stagger > *:nth-child(3) { animation-delay: 60ms; }
+  .stagger > *:nth-child(4) { animation-delay: 90ms; }
+  .stagger > *:nth-child(5) { animation-delay: 120ms; }
+  .stagger > *:nth-child(6) { animation-delay: 150ms; }
+  .stagger > *:nth-child(n + 7) { animation-delay: 180ms; }
+}
+
+@keyframes pa-in-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes pa-in-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes pa-in-msg {
+  from { opacity: 0; transform: translateY(8px) scale(0.995); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes pa-in-scale {
+  from { opacity: 0; transform: scale(0.97) translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes pa-sheet {
+  from { transform: translateY(100%); }
+  to { transform: none; }
+}
+@keyframes pa-drawer {
+  from { transform: translateX(100%); }
+  to { transform: none; }
+}
+@keyframes pa-shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
+}
+@keyframes pa-flow {
+  from { background-position: 0 0; }
+  to { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

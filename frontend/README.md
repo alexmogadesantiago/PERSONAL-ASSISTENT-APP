@@ -16,15 +16,44 @@ backend host.
 ```
 src/
 ├── api/          typed API client (one fetch wrapper, 401 → refresh → retry)
+├── ai/           the assistant: prompt, live context, action protocol, chat state
+├── features/     domain logic (automations/catalog.ts maps blueprints → n8n)
 ├── websocket/    reconnecting WebSocket (exponential backoff)
 ├── hooks/        TanStack Query hooks + useMonitorWebSocket / useLogsWebSocket
 ├── stores/       auth, theme, toast (React context)
-├── components/   ui/ primitives + shared pieces
+├── components/   ui/ primitives, chat/, and shared cards
 ├── layouts/      AppLayout (sidebar + topbar), nav config
 ├── pages/        one file per route
 ├── router.tsx    routes + auth guards (RequireAuth / RequireAdmin / PublicOnly)
 └── config.ts     reads VITE_* env vars
 ```
+
+## The AI Assistant
+
+`/assistant` is a real conversation with whichever provider the platform is
+configured to use. It calls the backend endpoint the automations already use —
+`POST /api/ai/generate` — with the signed-in user's bearer token, so no key
+ever reaches the browser and changing provider in the panel changes the chat
+too.
+
+Each request carries a freshly built snapshot of this installation (services,
+automations, recent executions, AI health, profile completeness) assembled by
+`ai/useSystemSnapshot.ts` from endpoints the user can already read. The model
+is instructed to answer from that snapshot only.
+
+Two limits are deliberate and visible in the UI rather than faked:
+
+- **No streaming.** The backend answers in one shot, so the chat shows a
+  thinking state and a Stop button that aborts the actual request.
+- **No conversation API.** History lives in this browser's `localStorage`
+  (`ai/conversations.ts`) and is labelled as such. It holds the transcript
+  only — never a token, a key, or the system context.
+
+Operations the assistant proposes (`[[action:...]]`) are mapped in
+`ai/actions.ts` onto endpoints that already exist — run / activate /
+deactivate a workflow, re-probe services, test the AI connection — and are
+always confirmed by the user before anything runs. A directive outside that
+set renders as "not available in this panel"; no endpoint is ever invented.
 
 ## Environment variables
 
@@ -44,7 +73,7 @@ Those three are the **only** variables this app needs. AI provider
 credentials (NVIDIA NIM, OpenRouter, Gemini) must never appear here or in the
 Vercel project: Vite inlines `VITE_*` into the shipped bundle, so a key set
 there is published. They live in the backend's `service_configs` table,
-written from *Settings → Artificial Intelligence*, and only FastAPI ever
+written from the *AI* page, and only FastAPI ever
 sends them anywhere:
 
 ```
@@ -55,7 +84,8 @@ Browser → Vercel frontend → FastAPI → AIService → NVIDIA NIM (primary)
 
 `src/security.test.ts` fails the build if a credential-shaped value, a
 credential-shaped `VITE_*` name, or a direct call to a provider host gets
-into the source or into `dist/`.
+into the source or into `dist/`. It also pins which files may touch browser
+storage: the session, the theme, and the assistant transcript — nothing else.
 
 The backend must allow this origin: set `AC_CORS_ORIGINS` to the Vercel URL
 (and `AC_CORS_ORIGIN_REGEX` for preview deployments). The API sends

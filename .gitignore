@@ -43,3 +43,9 @@ node_modules/
 frontend/.next/
 frontend/out/
 frontend/.env*.local
+
+# Local tooling and recorded demo media (videos exceed GitHub's 100 MB file limit)
+brag-output*/
+.playwright-mcp/
+.serena/
+.claude/

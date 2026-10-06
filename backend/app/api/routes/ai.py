@@ -413,10 +413,12 @@ async def generate(
     except AIAuthError as exc:
         # The provider refused OUR credential; that is a server-side
         # misconfiguration, not the caller's fault.
+        _count_ai_error(db)
         raise HTTPException(status_code=502, detail=exc.message)
     except AIBadRequest as exc:
         raise HTTPException(status_code=400, detail=exc.message)
     except AIError as exc:
+        _count_ai_error(db)
         raise HTTPException(status_code=502, detail=exc.message)
 
     if result.used_fallback:
@@ -435,6 +437,16 @@ async def generate(
                 "reason": result.primary_error,
             },
         )
+    from app.services import usage
+
+    usage.bump(db, "ai_requests")
+    usage.bump(db, "ai_latency_ms", int(result.response.latency_ms or 0))
     payload = result.as_dict()
     payload.pop("attempts", None)
     return GenerateResponse.model_validate(payload)
+
+
+def _count_ai_error(db) -> None:
+    from app.services import usage
+
+    usage.bump(db, "ai_errors")

@@ -78,6 +78,8 @@ services:
       TELEGRAM_TOKEN_MARCA: ${TELEGRAM_TOKEN_MARCA:-}
       TELEGRAM_TOKEN_LABORAL: ${TELEGRAM_TOKEN_LABORAL:-}
       TELEGRAM_TOKEN_EMAIL: ${TELEGRAM_TOKEN_EMAIL:-}
+      # Opcional: avisos de fallo del Error workflow (si no, el primer bot de arriba).
+      TELEGRAM_TOKEN_ALERTAS: ${TELEGRAM_TOKEN_ALERTAS:-}
       PLAYWRIGHT_BASE_URL: http://playwright:3000
       PROFILE_API_URL: http://profile:7777
     volumes:
@@ -189,6 +191,15 @@ services:
       AC_CORS_ORIGINS: ${AC_CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
       # Optional: allow Vercel preview URLs for one project (scoped regex, never ".*").
       AC_CORS_ORIGIN_REGEX: ${AC_CORS_ORIGIN_REGEX:-}
+      # As the browser sees them: OAuth redirect URI and post-connect landing.
+      AC_PUBLIC_API_URL: ${AC_PUBLIC_API_URL:-http://localhost:${BACKEND_PORT:-8080}}
+      AC_PUBLIC_APP_URL: ${AC_PUBLIC_APP_URL:-http://localhost:${FRONTEND_PORT:-3000}}
+      AC_GOOGLE_OAUTH_CLIENT_ID: ${AC_GOOGLE_OAUTH_CLIENT_ID:-}
+      AC_GOOGLE_OAUTH_CLIENT_SECRET: ${AC_GOOGLE_OAUTH_CLIENT_SECRET:-}
+      AC_MICROSOFT_OAUTH_CLIENT_ID: ${AC_MICROSOFT_OAUTH_CLIENT_ID:-}
+      AC_MICROSOFT_OAUTH_CLIENT_SECRET: ${AC_MICROSOFT_OAUTH_CLIENT_SECRET:-}
+      AC_GITHUB_OAUTH_CLIENT_ID: ${AC_GITHUB_OAUTH_CLIENT_ID:-}
+      AC_GITHUB_OAUTH_CLIENT_SECRET: ${AC_GITHUB_OAUTH_CLIENT_SECRET:-}
       # Automation Center's own DB, on the same postgres server as n8n's.
       AC_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:?FALTA_EN_EL_ENV}:${POSTGRES_PASSWORD:?FALTA_EN_EL_ENV}@postgres:5432/automation_center
       AC_JWT_SECRET: ${AC_JWT_SECRET}
@@ -247,6 +258,7 @@ services:
         VITE_API_URL: ${VITE_API_URL:-http://localhost:${BACKEND_PORT:-8080}}
         VITE_WS_URL: ${VITE_WS_URL:-ws://localhost:${BACKEND_PORT:-8080}}
         VITE_APP_ENV: local
+        VITE_N8N_URL: ${VITE_N8N_URL:-http://localhost:${N8N_PORT:-5678}}
     image: pa-automation-center-frontend:local
     container_name: pa-frontend
     restart: unless-stopped

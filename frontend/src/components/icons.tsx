@@ -112,3 +112,30 @@ export const IconX = (p: SVGProps<SVGSVGElement>) => (
     <path d="M18 6 6 18M6 6l12 12" />
   </svg>
 );
+
+export const IconSparkles = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M12 3v3M12 18v3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M3 12h3M18 12h3M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1" />
+    <circle cx="12" cy="12" r="3.2" />
+  </svg>
+);
+
+export const IconActivity = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M3 12h4l2.5-7 4 14L16 12h5" />
+  </svg>
+);
+
+export const IconServices = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <rect x="3" y="4" width="18" height="6" rx="2" />
+    <rect x="3" y="14" width="18" height="6" rx="2" />
+    <path d="M7 7h.01M7 17h.01" />
+  </svg>
+);
+
+export const IconChat = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M20 15a3 3 0 0 1-3 3H8l-4 3V6a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3z" />
+  </svg>
+);

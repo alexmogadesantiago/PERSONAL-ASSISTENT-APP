@@ -1,0 +1,186 @@
+{
+  "id": "pa00errorhandler",
+  "name": "Sistema - Gestor de errores",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Sistema - Gestor de errores\n\n**Que hace:** es el *Error workflow* de los cuatro asistentes (Settings > Error workflow). Cuando cualquiera falla: registra el fallo en la actividad del panel y avisa por Telegram con el nodo, el error y un enlace a la ejecucion. El mismo fallo se avisa como mucho una vez por hora.\n\n**No hace falta activarlo:** n8n lo ejecuta solo cuando otro workflow falla.\n\n**Credenciales:** AC_SERVICE_TOKEN · TELEGRAM_CHAT_ID · TELEGRAM_TOKEN_ALERTAS (opcional; si no, usa el primer bot configurado).",
+        "height": 320,
+        "width": 1080,
+        "color": 7
+      },
+      "id": "nota-descripcion",
+      "name": "Descripcion",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1260,
+        -120
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "error-trigger",
+      "name": "Al fallar un workflow",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1200,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normaliza el aviso de error de n8n. Dos formas de entrada: un fallo en un\n// nodo normal trae `execution`; un fallo del propio trigger trae `trigger`.\nconst e = $json.execution || {};\nconst t = $json.trigger || {};\nconst w = $json.workflow || {};\nconst err = e.error || t.error || {};\nconst mensaje = String(err.message || err.description || 'Error desconocido').slice(0, 1500);\nconst nodo = e.lastNodeExecuted || (err.node && err.node.name) || '';\n\n// Anti-spam: el mismo fallo (workflow + nodo + mensaje) se notifica como\n// mucho una vez por hora. Un Gmail sin credencial sondea cada minuto y, sin\n// esto, mandaria 60 alertas por hora.\nconst VENTANA = 60 * 60 * 1000;\nconst store = $getWorkflowStaticData('global');\nconst vistos = store.alertas || {};\nconst ahora = Date.now();\nfor (const k of Object.keys(vistos)) { if (ahora - vistos[k].at > VENTANA) delete vistos[k]; }\nconst clave = (w.id || '') + '|' + nodo + '|' + mensaje.slice(0, 200);\nconst previo = vistos[clave];\nconst notificar = !previo;\nvistos[clave] = previo ? { at: previo.at, silenciados: (previo.silenciados || 0) + 1 } : { at: ahora, silenciados: 0 };\nstore.alertas = vistos;\n\n// Solo un booleano: el token nunca entra en los datos de la ejecucion.\nconst token = [$env.TELEGRAM_TOKEN_ALERTAS, $env.TELEGRAM_NOTICIAS_TOKEN, $env.TELEGRAM_TOKEN_EMAIL,\n  $env.TELEGRAM_TOKEN_LABORAL, $env.TELEGRAM_TOKEN_MARCA].find((v) => /^\\d+:[\\w-]+$/.test(String(v || '').trim()));\nconst telegram_listo = !!token && /^-?\\d+$/.test(String($env.TELEGRAM_CHAT_ID || '').trim());\n\nconst esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst cuando = new Date().toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });\nlet texto = `🚨 <b>Fallo en «${esc(w.name || 'workflow')}»</b>\\n<i>${cuando}</i>\\n\\n`;\nif (nodo) texto += `Nodo: <b>${esc(nodo)}</b>\\n`;\ntexto += `Error: <code>${esc(mensaje.slice(0, 600))}</code>`;\nif (e.url) texto += `\\n\\n<a href=\"${esc(e.url)}\">Abrir la ejecución en n8n</a>`;\ntexto += `\\n\\n<i>Los fallos repetidos se silencian durante 1 hora.</i>`;\n\nreturn [{ json: {\n  workflow_id: String(w.id || ''),\n  workflow_name: String(w.name || ''),\n  execution_id: String(e.id || ''),\n  execution_url: String(e.url || ''),\n  node: nodo,\n  mode: String(e.mode || t.mode || ''),\n  message: mensaje,\n  notificar,\n  telegram_listo,\n  texto,\n} }];\n"
+      },
+      "id": "preparar-alerta",
+      "name": "Preparar alerta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -960,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ (($env.AC_API_URL || '').match(/^https?:\\/\\//) ? ($env.AC_API_URL || '') : 'https://' + ($env.AC_API_URL || '')).replace(/\\/+$/, '') }}/api/automations/events",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-AC-Service-Token",
+              "value": "={{ $env.AC_SERVICE_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  workflow_id: $json.workflow_id,\n  workflow_name: $json.workflow_name,\n  execution_id: $json.execution_id,\n  execution_url: $json.execution_url,\n  node: $json.node,\n  mode: $json.mode,\n  message: $json.message,\n  severity: 'error'\n}) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "registrar-panel",
+      "name": "Registrar en el panel",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -720,
+        260
+      ],
+      "onError": "continueRegularOutput",
+      "notes": "Deja el fallo en la actividad del panel (POST /api/automations/events).",
+      "notesInFlow": false
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.notificar === true && $json.telegram_listo === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-notificar",
+      "name": "¿Notificar por Telegram?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -720,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ [$env.TELEGRAM_TOKEN_ALERTAS, $env.TELEGRAM_NOTICIAS_TOKEN, $env.TELEGRAM_TOKEN_EMAIL, $env.TELEGRAM_TOKEN_LABORAL, $env.TELEGRAM_TOKEN_MARCA].find(v => /^\\d+:[\\w-]+$/.test(String(v || '').trim())) }}/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  chat_id: $env.TELEGRAM_CHAT_ID,\n  text: $json.texto,\n  parse_mode: \"HTML\",\n  disable_web_page_preview: true\n}) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "telegram-alerta",
+      "name": "Telegram - Alerta",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -480,
+        260
+      ],
+      "notes": "Usa TELEGRAM_TOKEN_ALERTAS si existe; si no, el primer bot configurado.",
+      "notesInFlow": false,
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Al fallar un workflow": {
+      "main": [
+        [
+          {
+            "node": "Preparar alerta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar alerta": {
+      "main": [
+        [
+          {
+            "node": "Registrar en el panel",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "¿Notificar por Telegram?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Notificar por Telegram?": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Alerta",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
+  },
+  "active": false,
+  "meta": {},
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveExecutionProgress": false,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "a1b2c3d4-0000-4000-8000-000000000100"
+}

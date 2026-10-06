@@ -74,3 +74,20 @@ def decrypt_secret(blob: bytes) -> dict:
 
 def generate_key() -> str:
     return Fernet.generate_key().decode()
+
+
+def seal(payload: dict) -> str:
+    """Opaque, authenticated, timestamped token (URL-safe). Used for the OAuth
+    `state`: it carries the PKCE verifier through the browser without exposing
+    it, and cannot be forged or replayed after `open_sealed`'s TTL."""
+    return encrypt_secret(payload).decode()
+
+
+def open_sealed(token: str, *, ttl_seconds: int) -> dict:
+    f = _fernet()
+    if f is None:
+        raise CipherNotConfigured("AC_CREDENTIAL_ENCRYPTION_KEY is not set")
+    try:
+        return json.loads(f.decrypt(token.encode(), ttl=ttl_seconds).decode())
+    except (InvalidToken, ValueError) as exc:
+        raise DecryptionError("invalid or expired token") from exc

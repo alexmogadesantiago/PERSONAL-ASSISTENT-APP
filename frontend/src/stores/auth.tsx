@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { authApi, authEvents, ApiError } from "@/api";
+import { isAuthFailure, verifyIdentity } from "@/api/identity";
 import {
   fromTokenResponse,
   getSession,
@@ -47,23 +48,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // Validate a persisted session on boot.
+  //
+  // `verifyIdentity` de-duplicates: StrictMode runs this effect twice and a
+  // recently verified session is not re-verified at all, so a burst of reloads
+  // no longer spends the backend's auth rate limit on bookkeeping.
+  //
+  // The failure branch is the important part. Dropping the session on *any*
+  // error meant a 429, a hiccup or an offline moment logged the user out while
+  // their token was still perfectly valid. Now only real evidence - the API
+  // saying 401 - ends the session; anything else leaves it alone and trusts the
+  // stored identity until a genuine call proves otherwise.
   useEffect(() => {
-    if (!getSession()) return;
+    const stored = getSession();
+    if (!stored) return;
     let cancelled = false;
-    authApi
-      .me()
+    verifyIdentity()
       .then((me) => {
         if (cancelled) return;
-        const s = getSession();
-        if (s) setSession({ ...s, user: me });
         setUser(me);
         setStatus("authenticated");
       })
-      .catch(() => {
+      .catch((err) => {
         if (cancelled) return;
-        setSession(null);
-        setUser(null);
-        setStatus("anonymous");
+        if (isAuthFailure(err)) {
+          setSession(null);
+          setUser(null);
+          setStatus("anonymous");
+          return;
+        }
+        setUser(stored.user);
+        setStatus("authenticated");
       });
     return () => {
       cancelled = true;

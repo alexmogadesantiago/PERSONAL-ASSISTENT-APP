@@ -1,0 +1,348 @@
+{
+  "id": "pa04marcapersonal",
+  "name": "Asistente - Marca Personal",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger-manual",
+      "name": "Ejecutar ahora",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1140,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "triggerAtHour": 8,
+              "triggerAtMinute": 15
+            }
+          ]
+        }
+      },
+      "id": "trigger-schedule",
+      "name": "Cada mañana 08:15",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -1140,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Perfil desde PostgreSQL via /api/profiles/runtime. Un item por feed, igual\n// que antes: el primero es la busqueda de Google News del propio usuario.\nconst p = $('Perfil (API)').first().json.profile || {};\nconst profile = {\n  idioma: p.idioma || 'es',\n  tono: p.tono || 'Profesional, claro y cercano.',\n  temas: p.temas || '',\n  categorias: Array.isArray(p.categorias) ? p.categorias : [],\n};\nconst feeds = Array.isArray(p.feeds) && p.feeds.length ? p.feeds : [p.feed_url].filter(Boolean);\nreturn feeds.map((feed_url) => ({ json: { profile, feed_url } }));\n"
+      },
+      "id": "cargar-perfil",
+      "name": "Cargar perfil",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -920,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.feed_url }}",
+        "options": {}
+      },
+      "id": "rss-fuente",
+      "name": "RSS - Fuente",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.1,
+      "position": [
+        -700,
+        220
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const title = ($json.title || '').trim();\nconst link = $json.link || $json.guid || '';\nconst norm = title.toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').replace(/[^a-z0-9 ]/g, '').trim();\nreturn { json: {\n  title,\n  link,\n  item_key: 'brand:' + norm,\n  text: (title + ' ' + ($json.contentSnippet || $json.content || '')).slice(0, 1800),\n} };\n"
+      },
+      "id": "normalizar",
+      "name": "Normalizar fuente",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const store = $getWorkflowStaticData('global');\nconst seen = store.brandSeen || {};\nconst now = Date.now();\nconst TTL = 45 * 24 * 60 * 60 * 1000;\nfor (const k of Object.keys(seen)) { if (now - seen[k] > TTL) delete seen[k]; }\nconst out = [];\nfor (const item of $input.all()) {\n  const key = item.json.item_key;\n  if (!key || key === 'brand:' || seen[key]) continue;\n  seen[key] = now;\n  out.push({ json: item.json, pairedItem: item.pairedItem });\n}\nstore.brandSeen = seen;\nreturn out;\n"
+      },
+      "id": "deduplicar",
+      "name": "Deduplicar fuentes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -260,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "maxItems": 3
+      },
+      "id": "limitar",
+      "name": "Máx. 3 por ejecución",
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ (($env.AC_API_URL || '').match(/^https?:\\/\\//) ? ($env.AC_API_URL || '') : 'https://' + ($env.AC_API_URL || '')).replace(/\\/+$/, '') }}/api/ai/generate",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-AC-Service-Token",
+              "value": "={{ $env.AC_SERVICE_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"prompt\": {{ JSON.stringify(\n            \"Redacta un borrador de post de LinkedIn en el idioma de código '\" + $('Cargar perfil').first().json.profile.idioma +\n            \"'. Máximo 1000 caracteres. Tono: \" + $('Cargar perfil').first().json.profile.tono +\n            \" Temas de referencia: \" + $('Cargar perfil').first().json.profile.temas +\n            \". No inventes cifras ni hechos; es un borrador para revisar.\\n\\nNoticia: \" + $json.title +\n            \"\\nEnlace: \" + $json.link + \"\\nContexto: \" + $json.text\n          ) }},\n  \"json_schema\": {\n    \"type\": \"object\",\n    \"properties\": {\n      \"titulo\": {\n        \"type\": \"string\"\n      },\n      \"borrador_linkedin\": {\n        \"type\": \"string\"\n      },\n      \"hashtags\": {\n        \"type\": \"array\",\n        \"items\": {\n          \"type\": \"string\"\n        }\n      }\n    },\n    \"required\": [\n      \"titulo\",\n      \"borrador_linkedin\",\n      \"hashtags\"\n    ]\n  },\n  \"temperature\": 0.7\n}",
+        "options": {}
+      },
+      "id": "gemini",
+      "name": "IA - Borrador LinkedIn",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        180,
+        220
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Lee la respuesta del Automation Center (/api/ai/generate).\n// `data` ya viene parseado; `text` es el respaldo. Se acepta ademas el sobre\n// antiguo de Gemini para que una importacion a medias no falle en silencio.\nfunction leerIA(r) {\n  if (!r) return null;\n  if (r.data && typeof r.data === 'object') return r.data;\n  const crudo = typeof r.text === 'string'\n    ? r.text\n    : (r.candidates && r.candidates[0] && r.candidates[0].content\n       && r.candidates[0].content.parts && r.candidates[0].content.parts[0]\n       && r.candidates[0].content.parts[0].text);\n  if (!crudo) return null;\n  return JSON.parse(String(crudo).replace(/^\\s*```(?:json)?/i, '').replace(/```\\s*$/, ''));\n}\n\n// Parsea la respuesta del Automation Center, guarda el borrador como .md\n// y devuelve los metadatos para el aviso.\n// El ENLACE se toma del nodo de normalización, no de la IA.\nconst fs = require('fs');\nconst DIR = '/files/output/marca-personal';\ntry { fs.mkdirSync(DIR, { recursive: true }); } catch (e) {}\n\nlet data;\ntry {\n  data = leerIA($json);\n} catch (e) {\n  throw new Error('La respuesta de la IA no es JSON válido: ' + e.message);\n}\nif (!data || !data.titulo || !data.borrador_linkedin) {\n  throw new Error('Borrador incompleto: la IA no devolvió titulo o texto');\n}\n\nlet fuente = '';\ntry { fuente = $('Normalizar fuente').item.json.link || ''; } catch (e) {}\n\nconst tags = Array.isArray(data.hashtags) ? data.hashtags.join(' ') : String(data.hashtags || '');\nconst fecha = new Date().toISOString().slice(0, 10);\nconst slug = String(data.titulo).toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g, '')\n  .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'borrador';\nconst ruta = DIR + '/' + fecha + '_' + slug + '.md';\n\nconst md = '# ' + data.titulo + '\\n\\n'\n  + '> Borrador generado el ' + fecha + '. Revísalo antes de publicar.\\n\\n'\n  + data.borrador_linkedin + '\\n\\n'\n  + (tags ? tags + '\\n\\n' : '')\n  + (fuente ? 'Fuente: ' + fuente + '\\n' : '');\n\ntry { fs.writeFileSync(ruta, md, 'utf8'); } catch (e) { throw new Error('No se pudo escribir ' + ruta + ': ' + e.message); }\n\nreturn { json: {\n  titulo: data.titulo,\n  ruta,\n  preview: data.borrador_linkedin.slice(0, 240),\n  fuente,\n} };\n"
+      },
+      "id": "guardar",
+      "name": "Validar y guardar borrador",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Un único mensaje-resumen con todos los borradores generados en esta ejecución.\nconst items = $input.all().map((i) => i.json);\nif (items.length === 0) return [];\n\nconst esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst fecha = new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });\n\nconst bloques = items.map((b, i) =>\n  `<b>${i + 1}. ${esc(b.titulo)}</b>\\n${esc(b.preview)}…\\n📄 <code>${esc(b.ruta)}</code>`\n).join('\\n\\n━━━━━━━━━━\\n\\n');\n\nconst texto =\n  `✍️ <b>BORRADORES LINKEDIN</b>\\n<i>${fecha}</i>\\n\\n` +\n  `━━━━━━━━━━\\n\\n${bloques}\\n\\n━━━━━━━━━━\\n` +\n  `<i>${items.length} borrador(es) en output/marca-personal/</i>`;\n\nreturn [{ json: { texto } }];\n"
+      },
+      "id": "aviso",
+      "name": "Construir aviso",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        620,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_TOKEN_MARCA }}/sendMessage",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  chat_id: $env.TELEGRAM_CHAT_ID,\n  text: $json.texto,\n  parse_mode: \"HTML\",\n  disable_web_page_preview: true\n}) }}",
+        "options": {}
+      },
+      "id": "telegram",
+      "name": "Telegram - Aviso borradores",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        840,
+        220
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "url": "={{ (($env.AC_API_URL || '').match(/^https?:\\/\\//) ? ($env.AC_API_URL || '') : 'https://' + ($env.AC_API_URL || '')).replace(/\\/+$/, '') }}/api/profiles/runtime?profile_id={{ $env.AC_PROFILE_ID }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-AC-Service-Token",
+              "value": "={{ $env.AC_SERVICE_TOKEN }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "perfil-api-node",
+      "name": "Perfil (API)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -1120,
+        220
+      ]
+    }
+  ],
+  "connections": {
+    "Ejecutar ahora": {
+      "main": [
+        [
+          {
+            "node": "Perfil (API)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cada mañana 08:15": {
+      "main": [
+        [
+          {
+            "node": "Perfil (API)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cargar perfil": {
+      "main": [
+        [
+          {
+            "node": "RSS - Fuente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RSS - Fuente": {
+      "main": [
+        [
+          {
+            "node": "Normalizar fuente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar fuente": {
+      "main": [
+        [
+          {
+            "node": "Deduplicar fuentes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deduplicar fuentes": {
+      "main": [
+        [
+          {
+            "node": "Máx. 3 por ejecución",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Máx. 3 por ejecución": {
+      "main": [
+        [
+          {
+            "node": "IA - Borrador LinkedIn",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar y guardar borrador": {
+      "main": [
+        [
+          {
+            "node": "Construir aviso",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Construir aviso": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Aviso borradores",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IA - Borrador LinkedIn": {
+      "main": [
+        [
+          {
+            "node": "Validar y guardar borrador",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Perfil (API)": {
+      "main": [
+        [
+          {
+            "node": "Cargar perfil",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "active": false,
+  "versionId": "a1b2c3d4-0004-4000-8000-000000000005",
+  "meta": {}
+}

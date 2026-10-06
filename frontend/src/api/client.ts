@@ -75,11 +75,21 @@ function extractMessage(payload: unknown, fallback: string): { message: string; 
   return { message: fallback };
 }
 
-let refreshInFlight: Promise<boolean> | null = null;
+/**
+ * What happened when we tried to renew the session.
+ *
+ * The distinction matters: `/api/auth/refresh` shares the backend's auth rate
+ * limit, so a refused refresh is not necessarily a refused *session*. Treating
+ * every failure as "invalid" is how a rate limit used to end up logging people
+ * out.
+ */
+type RefreshOutcome = "renewed" | "invalid" | "unavailable";
 
-async function doRefresh(): Promise<boolean> {
+let refreshInFlight: Promise<RefreshOutcome> | null = null;
+
+async function doRefresh(): Promise<RefreshOutcome> {
   const session = getSession();
-  if (!session?.refresh_token) return false;
+  if (!session?.refresh_token) return "invalid";
   try {
     const res = await fetch(buildUrl("/api/auth/refresh"), {
       method: "POST",
@@ -87,24 +97,29 @@ async function doRefresh(): Promise<boolean> {
       body: JSON.stringify({ refresh_token: session.refresh_token }),
     });
     if (!res.ok) {
-      dropSession();
-      return false;
+      // Only the server rejecting the refresh token itself ends the session.
+      // 429 (rate limited) and 5xx (backend trouble) say nothing about it.
+      if (res.status === 401 || res.status === 403) {
+        dropSession();
+        return "invalid";
+      }
+      return "unavailable";
     }
     const data = await res.json();
     setSession(fromTokenResponse(data));
-    return true;
+    return "renewed";
   } catch {
     // network error: keep the session, the caller will surface the failure
-    return false;
+    return "unavailable";
   }
 }
 
 /** Force a single token refresh (used by the WebSocket layer after a 1008). */
 export function refreshAccessToken(): Promise<boolean> {
-  return refreshOnce();
+  return refreshOnce().then((outcome) => outcome === "renewed");
 }
 
-function refreshOnce(): Promise<boolean> {
+function refreshOnce(): Promise<RefreshOutcome> {
   if (!refreshInFlight) {
     refreshInFlight = doRefresh().finally(() => {
       refreshInFlight = null;
@@ -153,15 +168,24 @@ export async function apiRequest<T>(path: string, opts: RequestOptions = {}): Pr
   }
 
   if (res.status === 401 && auth && getSession()) {
-    const ok = await refreshOnce();
-    if (ok) {
+    const outcome = await refreshOnce();
+    if (outcome === "renewed") {
       try {
         res = await send();
       } catch (err) {
         throw new ApiError(0, "Cannot reach the Automation Center backend.", err, "network");
       }
-    } else {
+    } else if (outcome === "invalid") {
       throw new ApiError(401, "Your session has expired. Please sign in again.", null, "session_expired");
+    } else {
+      // The session may well be fine - we simply could not renew it right now.
+      // Deliberately not a 401: nothing downstream should sign the user out.
+      throw new ApiError(
+        503,
+        "Could not renew your session right now. Please try again in a moment.",
+        null,
+        "refresh_unavailable",
+      );
     }
   }
 
@@ -180,7 +204,9 @@ export async function apiRequest<T>(path: string, opts: RequestOptions = {}): Pr
 export const api = {
   get: <T>(path: string, query?: RequestOptions["query"], signal?: AbortSignal) =>
     apiRequest<T>(path, { method: "GET", query, signal }),
-  post: <T>(path: string, body?: unknown) => apiRequest<T>(path, { method: "POST", body }),
+  /** `signal` lets a caller abort a long POST — the assistant's Stop button. */
+  post: <T>(path: string, body?: unknown, signal?: AbortSignal) =>
+    apiRequest<T>(path, { method: "POST", body, signal }),
   put: <T>(path: string, body?: unknown) => apiRequest<T>(path, { method: "PUT", body }),
   patch: <T>(path: string, body?: unknown) => apiRequest<T>(path, { method: "PATCH", body }),
   del: <T>(path: string) => apiRequest<T>(path, { method: "DELETE" }),

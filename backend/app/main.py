@@ -36,9 +36,17 @@ async def lifespan(app: FastAPI):
         # tests start the hub on demand (first WS connect) to avoid a probe
         # delay on every TestClient spin-up
         await metrics_hub.start()
+        # Telegram as a conversational channel: answers the linked chat only.
+        from app.db import SessionLocal
+        from app.services import assistant
+
+        app.state.bot_task = asyncio.create_task(assistant.bot_loop(SessionLocal))
 
     log.info("Automation Center backend %s starting (env=%s)", __version__, settings.environment)
     yield
+    task = getattr(app.state, "bot_task", None)
+    if task is not None:
+        task.cancel()
     await metrics_hub.stop()
     logging.getLogger().removeHandler(log_bus)
     log_bus.detach_loop()

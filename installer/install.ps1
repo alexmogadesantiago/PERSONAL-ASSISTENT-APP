@@ -354,7 +354,10 @@ $before = Get-N8nWorkflowCount -DockerExe $DockerExe -Cwd $RepoRoot
 Invoke-ApNative "$dq $dc exec -T n8n n8n import:workflow --separate --input=/files/workflows" $RepoRoot | Out-Null
 $after = Get-N8nWorkflowCount -DockerExe $DockerExe -Cwd $RepoRoot
 Write-ApOk "Workflows importados (workflow_entity: $before -> $after)"
-if ($after -ne 4) { Write-ApLog -Level ERROR -Message "workflow_entity = $after (esperado 4). Revisa la BD de n8n." }
+$missing = Get-ApMissingWorkflowIds -DockerExe $DockerExe -Cwd $RepoRoot
+if ($null -eq $missing) { Write-ApLog -Level ERROR -Message 'No se pudo comprobar los workflows importados en la BD de n8n.' }
+elseif ($missing.Count -gt 0) { Write-ApLog -Level ERROR -Message ("Faltan workflows en n8n: " + ($missing -join ', ') + ". Revisa: docker compose logs n8n") }
+else { Write-ApOk ("Los {0} workflows del producto estan en n8n (incluido el gestor de errores)" -f $script:AP_WORKFLOW_IDS.Count) }
 
 # --- 9. HEALTH CHECK ------------------------------------------------
 Set-ApState 'health-check'

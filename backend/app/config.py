@@ -42,6 +42,23 @@ class Settings(BaseSettings):
     # e.g. r"https://automation-center-[a-z0-9-]+\.vercel\.app". Empty = disabled.
     # Keep this scoped to your own project; never use ".*".
     cors_origin_regex: str = ""
+    # Where the browser reaches this API and the panel. OAuth needs both: the
+    # provider redirects to `{public_api_url}/api/integrations/<p>/callback`,
+    # and the callback sends the user back to `{public_app_url}/integrations`.
+    # Inside Docker the backend listens on 8080 but is published on
+    # BACKEND_PORT, so these cannot be derived from api_port. Empty =
+    # http://localhost:<api_port> and the first CORS origin respectively.
+    public_api_url: str = ""
+    public_app_url: str = ""
+    # OAuth apps can also come from the environment (the panel's Advanced
+    # setup writes `service_configs`, which wins).
+    google_oauth_client_id: str = ""
+    google_oauth_client_secret: str = ""
+    microsoft_oauth_client_id: str = ""
+    microsoft_oauth_client_secret: str = ""
+    microsoft_oauth_tenant: str = "common"
+    github_oauth_client_id: str = ""
+    github_oauth_client_secret: str = ""
 
     # --- Database (Automation Center's own DB, separate from n8n's) ---
     database_url: str = "postgresql+psycopg://automation:automation@localhost:5432/automation_center"
@@ -217,6 +234,18 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def public_api_base(self) -> str:
+        return (self.public_api_url.strip() or f"http://localhost:{self.api_port}").rstrip("/")
+
+    @property
+    def public_app_base(self) -> str:
+        explicit = self.public_app_url.strip()
+        if explicit:
+            return explicit.rstrip("/")
+        origins = self.cors_origin_list
+        return (origins[0] if origins else "http://localhost:3000").rstrip("/")
 
     @property
     def cors_origin_regex_or_none(self) -> str | None:

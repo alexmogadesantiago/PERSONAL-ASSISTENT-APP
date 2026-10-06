@@ -49,7 +49,7 @@ ARM32/ARMv7.
    - `docker compose build` + `up`;
    - crea la BD `automation_center` (si no existe — nunca `DROP`);
    - aplica migraciones (`alembic upgrade head`, en el arranque del backend);
-   - importa los 4 workflows (upsert por id: no duplica);
+   - importa los 5 workflows (4 asistentes + gestor de errores) (upsert por id: no duplica);
    - health checks reales de los 6 contenedores + HTTP de backend/frontend/n8n;
    - registra el arranque automático y (opcional) el icono de bandeja.
 3. Al terminar abre `http://localhost:3000`. Crea la cuenta (**el primer

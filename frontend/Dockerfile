@@ -12,7 +12,9 @@ COPY . .
 ARG VITE_API_URL=http://localhost:8080
 ARG VITE_WS_URL=ws://localhost:8080
 ARG VITE_APP_ENV=local
-ENV VITE_API_URL=$VITE_API_URL VITE_WS_URL=$VITE_WS_URL VITE_APP_ENV=$VITE_APP_ENV
+# The n8n editor as the browser sees it (OAuth redirect URI, "Open n8n").
+ARG VITE_N8N_URL=http://localhost:5678
+ENV VITE_API_URL=$VITE_API_URL VITE_WS_URL=$VITE_WS_URL VITE_APP_ENV=$VITE_APP_ENV VITE_N8N_URL=$VITE_N8N_URL
 RUN npm run build
 
 FROM nginx:1.27-alpine AS serve

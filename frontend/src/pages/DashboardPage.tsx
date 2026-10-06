@@ -1,169 +1,201 @@
-import { Link } from "react-router-dom";
-import {
-  n8nStateOf,
-  useHealth,
-  useN8nHealth,
-  useSystemMetrics,
-  useSystemStatus,
-  useWorkflows,
-} from "@/hooks/queries";
-import { Badge, Card, CardTitle, EmptyState } from "@/components/ui";
-import { PageHeader } from "@/components/ui";
-import { QueryBoundary, ServiceRow, StatCard, errorMessage } from "@/components/common";
-import { bytesFromMb, formatUptime, pct, relativeTime } from "@/utils/format";
+/**
+ * Home - the Command Center.
+ *
+ * Answers, in order: what is happening (Today), what is the assistant doing
+ * (automations, services), what should I do (AI insights) and - front and
+ * centre - what would you like it to do (the command bar). Every number comes
+ * from `/api/overview` (n8n runs, connections, the error centre, AI usage);
+ * when a source is missing the card says so instead of showing a zero.
+ */
+import { useEffect } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { useHealth } from "@/hooks/queries";
+import { useActivityFeed, useOverview } from "@/hooks/platform";
+import { useAuth } from "@/stores/auth";
+import { ButtonLink, Card, CardTitle, EmptyState, Skeleton } from "@/components/ui";
+import { IActivity, IAlert, IArrowRight, ProviderMark } from "@/components/icons2";
+import { cn } from "@/utils/cn";
+import { WeekChart } from "@/features/home/WeekChart";
+import { SetupChecklist, useSetupProgress } from "@/features/home/setup";
+import { ActivityRow } from "@/features/activity/ActivityList";
+import { BriefingCard, ServiceStrip } from "@/features/home/Briefing";
+import { AutomationsCard, CommandBar, InsightsCard, TodayCard, greeting } from "@/features/home/CommandCenter";
+import { wasOnboarded } from "./OnboardingPage";
 
 export function DashboardPage() {
+  const { user } = useAuth();
   const health = useHealth();
-  const status = useSystemStatus();
-  const metrics = useSystemMetrics();
-  const n8n = useN8nHealth();
-  const workflows = useWorkflows();
+  const o = useOverview();
+  const feed = useActivityFeed("all");
+  const setup = useSetupProgress();
+  const navigate = useNavigate();
+  const d = o.data;
 
-  const operational = status.data?.operational;
-  const overall = health.isError
-    ? { tone: "danger" as const, label: "Backend offline" }
-    : operational
-      ? { tone: "success" as const, label: "Operational" }
-      : status.data
-        ? { tone: "warning" as const, label: "Degraded" }
-        : { tone: "neutral" as const, label: "Checking…" };
-
-  const m = metrics.data;
-  const activeWorkflows = workflows.data?.data.filter((w) => w.active).length ?? 0;
-
-  const n8nState = n8nStateOf(n8n.data, n8n.isError);
+  // A brand-new installation starts with the welcome tour, once.
+  useEffect(() => {
+    if (!setup.loading && setup.done === 0 && !wasOnboarded()) navigate("/onboarding", { replace: true });
+  }, [setup.loading, setup.done, navigate]);
+  const stateTone = d?.system.state === "operational" ? "bg-ok" : d?.system.state === "degraded" ? "bg-warn" : "bg-danger";
 
   return (
-    <div>
-      <PageHeader
-        title="Dashboard"
-        description="Live status of the Automation Center stack."
-        actions={<Badge tone={overall.tone}>● {overall.label}</Badge>}
-      />
-
+    <div className="space-y-6">
       {health.isError && (
-        <div className="mb-6 rounded-xl border border-danger/30 bg-danger/5 p-4 text-sm">
-          <p className="font-semibold text-danger">Unable to connect to the Automation Center backend.</p>
-          <p className="mt-1 text-muted">{errorMessage(health.error)}</p>
+        <div role="alert" className="rounded-2xl border border-danger/30 bg-danger/5 p-4 text-sm text-danger">
+          Unable to connect to the Automation Center backend.
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatCard
-          label="CPU"
-          value={metrics.isLoading ? "…" : pct(m?.cpu_percent)}
-          accent={(m?.cpu_percent ?? 0) > 85 ? "danger" : (m?.cpu_percent ?? 0) > 65 ? "warn" : "ok"}
-        />
-        <StatCard
-          label="Memory"
-          value={metrics.isLoading ? "…" : pct(m?.memory_percent)}
-          sub={m ? `${bytesFromMb(m.memory_used_mb)} / ${bytesFromMb(m.memory_total_mb)}` : undefined}
-          accent={(m?.memory_percent ?? 0) > 90 ? "danger" : (m?.memory_percent ?? 0) > 75 ? "warn" : "ok"}
-        />
-        <StatCard
-          label="Disk"
-          value={metrics.isLoading ? "…" : pct(m?.disk_percent)}
-          sub={m ? `${m.disk_free_gb.toFixed(0)} GB free` : undefined}
-          accent={(m?.disk_percent ?? 0) > 90 ? "danger" : (m?.disk_percent ?? 0) > 75 ? "warn" : "ok"}
-        />
-        <StatCard
-          label="Uptime"
-          value={m ? formatUptime(m.uptime_seconds) : "…"}
-          sub={m ? `sampled ${relativeTime(m.sampled_at)}` : undefined}
-        />
+      <section className="flex flex-col gap-1">
+        <p className="text-sm text-muted">
+          {new Date().toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" })}
+        </p>
+        <h1 className="text-[28px] font-semibold tracking-tight text-fg">
+          {greeting()}, {user?.username ?? "there"}
+        </h1>
+        <p className="flex items-center gap-2 text-sm text-muted">
+          {o.isLoading ? (
+            <Skeleton className="h-4 w-56" />
+          ) : (
+            <>
+              <span className={cn("h-2 w-2 rounded-full", stateTone)} />
+              {d ? (d.system.state === "operational" ? "Your assistant is ready." : d.system.message) : "Status unavailable."}
+            </>
+          )}
+        </p>
+      </section>
+
+      <CommandBar />
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <TodayCard />
+        <AutomationsCard />
       </div>
 
-      <div className="mt-6 grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardTitle action={<Link to="/monitoring" className="text-xs text-brand hover:underline">Monitor</Link>}>
-            Services
-          </CardTitle>
-          <QueryBoundary
-            isLoading={status.isLoading}
-            isError={status.isError}
-            error={status.error}
-            onRetry={() => status.refetch()}
-            skeletonRows={5}
-          >
-            {status.data && (
-              <div>
-                {status.data.services.map((s) => (
-                  <ServiceRow
-                    key={s.name}
-                    name={s.name}
-                    status={s.status}
-                    online={s.online}
-                    latency={s.latency_ms}
-                    detail={s.detail}
-                  />
+      <ServiceStrip />
+
+      <InsightsCard />
+
+      <div className="grid gap-4 lg:grid-cols-3">
+        <div className="min-w-0 space-y-4 lg:col-span-2">
+          <BriefingCard />
+
+          <Card>
+            <CardTitle
+              description={
+                d?.n8n.available === false ? `Run history unavailable: ${d.n8n.error}` : "Runs per day · AI requests in teal"
+              }
+              action={
+                d && (
+                  <span className="text-xs text-muted">
+                    <b className="text-fg">{d.ai.requests_today}</b> AI requests today
+                  </span>
+                )
+              }
+            >
+              This week
+            </CardTitle>
+            {o.isLoading ? <Skeleton className="h-[170px] w-full" /> : d && <WeekChart series={d.executions.series} ai={d.ai.series} />}
+          </Card>
+
+          <Card>
+            <CardTitle
+              action={
+                <Link to="/activity" className="inline-flex items-center gap-1 text-xs font-medium text-brand hover:underline">
+                  All activity <IArrowRight width={13} height={13} />
+                </Link>
+              }
+            >
+              Today's activity
+            </CardTitle>
+            {feed.isLoading ? (
+              <div className="space-y-2">
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <Skeleton key={i} className="h-10" />
+                ))}
+              </div>
+            ) : (feed.data?.data.length ?? 0) === 0 ? (
+              <EmptyState
+                icon={<IActivity />}
+                title="Quiet so far"
+                description="Runs, connections and AI actions will show up here as they happen."
+              />
+            ) : (
+              <div className="-mx-2">
+                {feed.data!.data.slice(0, 8).map((item) => (
+                  <ActivityRow key={item.id} item={item} dense />
                 ))}
               </div>
             )}
-          </QueryBoundary>
-        </Card>
+          </Card>
+        </div>
 
-        <Card>
-          <CardTitle action={<Link to="/automations" className="text-xs text-brand hover:underline">All</Link>}>
-            Automations (n8n)
-          </CardTitle>
-          {n8nState === "not_configured" ? (
-            <EmptyState
-              title="n8n is not configured"
-              description="Set AC_N8N_BASE_URL and AC_N8N_API_KEY on the backend to manage automations from here."
-            />
-          ) : n8nState === "offline" ? (
-            <EmptyState
-              title="n8n is offline"
-              description="Automation workflows are temporarily unavailable."
-            />
-          ) : (
-            <QueryBoundary
-              isLoading={workflows.isLoading}
-              isError={workflows.isError}
-              error={workflows.error}
-              onRetry={() => workflows.refetch()}
-            >
-              {workflows.data && workflows.data.data.length === 0 ? (
-                <EmptyState title="No workflows found" description="Create workflows in n8n to see them here." />
-              ) : (
-                <div className="space-y-2">
-                  <div className="flex gap-6 text-sm">
-                    <div>
-                      <p className="text-2xl font-semibold text-fg">{workflows.data?.data.length ?? 0}</p>
-                      <p className="text-xs text-muted">total</p>
-                    </div>
-                    <div>
-                      <p className="text-2xl font-semibold text-ok">{activeWorkflows}</p>
-                      <p className="text-xs text-muted">active</p>
-                    </div>
-                  </div>
-                  <ul className="mt-2 divide-y divide-border">
-                    {workflows.data?.data.slice(0, 6).map((w) => (
-                      <li key={w.id} className="flex items-center justify-between py-2 text-sm">
-                        <Link to={`/automations/${w.id}`} className="truncate text-fg hover:text-brand">
-                          {w.name}
-                        </Link>
-                        <Badge tone={w.active ? "success" : "neutral"}>{w.active ? "active" : "inactive"}</Badge>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </QueryBoundary>
+        <div className="min-w-0 space-y-4">
+          {(d?.errors.top.length ?? 0) > 0 && (
+            <Card className="border-danger/25">
+              <CardTitle icon={<IAlert width={16} height={16} />} description="Fixing these keeps your automations running.">
+                Needs your attention
+              </CardTitle>
+              <ul className="space-y-3">
+                {d!.errors.top.map((e) => (
+                  <li key={e.id} className="rounded-xl bg-surface-2/60 p-3">
+                    <p className="text-sm font-medium text-fg">{e.title}</p>
+                    {e.automation && <p className="text-xs text-muted">{e.automation}</p>}
+                    <ButtonLink to={e.action.href} size="xs" variant="primary" className="mt-2">
+                      {e.action.label}
+                    </ButtonLink>
+                  </li>
+                ))}
+              </ul>
+            </Card>
           )}
-        </Card>
-      </div>
 
-      {health.data?.problems && health.data.problems.length > 0 && (
-        <Card className="mt-6 border-warn/40">
-          <CardTitle>Configuration warnings</CardTitle>
-          <ul className="list-inside list-disc space-y-1 text-sm text-warn">
-            {health.data.problems.map((p) => (
-              <li key={p}>{p}</li>
-            ))}
-          </ul>
-        </Card>
-      )}
+          {!setup.complete && (
+            <Card>
+              <CardTitle description="A few minutes and your assistant is ready.">Get set up</CardTitle>
+              <SetupChecklist compact />
+            </Card>
+          )}
+
+          <Card>
+            <CardTitle
+              action={
+                <Link to="/integrations" className="text-xs font-medium text-brand hover:underline">
+                  Manage
+                </Link>
+              }
+            >
+              Integrations
+            </CardTitle>
+            {d ? (
+              <>
+                <p className="text-sm text-muted">
+                  <b className="text-2xl font-semibold text-fg">{d.integrations.connected}</b> of {d.integrations.total} connected
+                </p>
+                <div className="mt-3 flex gap-2">
+                  {(["google", "telegram", "microsoft", "github"] as const).map((p) => {
+                    const bad = d.integrations.unhealthy.find((u) => u.key === p);
+                    return (
+                      <Link
+                        key={p}
+                        to={`/integrations/${p}`}
+                        title={bad ? `${bad.label}: ${bad.health}` : p}
+                        className={cn(
+                          "relative grid h-10 w-10 place-items-center rounded-xl bg-surface-2 ring-1 ring-inset ring-border transition hover:ring-border-strong",
+                        )}
+                      >
+                        <ProviderMark provider={p} size={20} />
+                        {bad && <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-danger ring-2 ring-surface" />}
+                      </Link>
+                    );
+                  })}
+                </div>
+              </>
+            ) : (
+              <Skeleton className="h-16" />
+            )}
+          </Card>
+        </div>
+      </div>
     </div>
   );
 }

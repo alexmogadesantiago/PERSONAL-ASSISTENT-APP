@@ -3,7 +3,7 @@
 ;  Produce: Personal-Assistant-Setup.exe
 ;
 ;  Compilar:
-;     ISCC.exe /DAppVersion=0.4.0 installer\windows\PersonalAssistant.iss
+;     ISCC.exe /DAppVersion=3.0.0 installer\windows\PersonalAssistant.iss
 ;  (build\build-exe.ps1 lee VERSION y pasa /DAppVersion automáticamente.)
 ;
 ;  El .exe empaqueta la LISTA BLANCA de [Files] (docker-compose + los cuatro

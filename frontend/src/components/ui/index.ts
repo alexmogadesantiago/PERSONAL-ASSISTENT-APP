@@ -1,7 +1,10 @@
 export * from "./primitives";
 export * from "./form";
 export * from "./Table";
+export * from "./overlay";
+export * from "./controls";
 export { Modal } from "./Modal";
 export { ConfirmDialog } from "./ConfirmDialog";
 export { Toaster } from "./Toaster";
 export { Sparkline } from "./Sparkline";
+export { CopyField } from "./CopyField";

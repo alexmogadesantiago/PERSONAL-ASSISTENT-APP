@@ -48,8 +48,10 @@ export function CredentialsPage() {
   return (
     <div>
       <PageHeader
-        title="Credentials"
-        description="Encrypted at rest. Secrets are never shown in full."
+        back={{ to: "/settings/integrations", label: "Settings" }}
+        eyebrow="Advanced"
+        title="API keys vault"
+        description="Extra API keys for services without a connection flow - encrypted at rest, never shown in full, with a real connection test. Connections made in Integrations are managed there."
         actions={
           <Button
             disabled={store.data?.configured === false}
@@ -88,7 +90,7 @@ export function CredentialsPage() {
           />
         ) : (
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {creds.data?.map((c) => (
+            {creds.data?.filter((c) => !(c.meta as Record<string, unknown> | undefined)?.integration).map((c) => (
               <Card key={c.id}>
                 <div className="flex items-start justify-between">
                   <div>

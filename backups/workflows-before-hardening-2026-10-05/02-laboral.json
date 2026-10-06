@@ -1,0 +1,474 @@
+{
+  "id": "pa02laboral00001",
+  "name": "Asistente - Laboral",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger-manual",
+      "name": "Ejecutar ahora",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1320,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "triggerAtHour": 7,
+              "triggerAtMinute": 30
+            }
+          ]
+        }
+      },
+      "id": "trigger-schedule",
+      "name": "Cada mañana 07:30",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -1320,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Perfil desde PostgreSQL via /api/profiles/runtime. El backend ya resuelve\n// keywords, include_terms, ubicacion e idioma desde el catalogo del\n// personalizador, asi que aqui solo se pasa el contrato adelante.\nconst p = $('Perfil (API)').first().json.profile || {};\nreturn [{ json: { profile: {\n  idioma: p.idioma || 'es',\n  keywords: p.keywords || 'Engineer,Analyst,Operations',\n  include_terms: Array.isArray(p.include_terms) ? p.include_terms : [],\n  location: p.location || '',\n  perfil_texto: p.perfil_texto || '',\n} } }];\n"
+      },
+      "id": "cargar-perfil",
+      "name": "Cargar perfil",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1100,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.PLAYWRIGHT_BASE_URL }}/scrape",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  keywords: $json.profile.keywords,\n  location: $json.profile.location,\n  maxJobs: 40\n}) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "scraper",
+      "name": "Scraper Playwright",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -880,
+        220
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "jsCode": "// El scraper devuelve { ok, source, jobs: [...] }. Un item por oferta.\nconst r = $input.first().json || {};\nconst jobs = Array.isArray(r.jobs) ? r.jobs : [];\nconst source = r.source || 'desconocido';\nif (jobs.length === 0) {\n  return [{ json: { __sinOfertas: true, motivo: 'el scraper no devolvió ofertas (source: ' + source + ')', source } }];\n}\nreturn jobs.map((j) => ({ json: { ...j, source } }));\n"
+      },
+      "id": "extraer",
+      "name": "Extraer ofertas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -660,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Filtro guiado por el PERFIL: mantiene ofertas cuyo título/empresa encaja\n// con los términos derivados de sector_interes + formacion del usuario.\n// EXCLUDE es fijo (basura que nunca interesa).\nconst prof = $('Cargar perfil').first().json.profile;\nconst INCLUDE = (prof.include_terms && prof.include_terms.length)\n  ? prof.include_terms\n  : ['engineer', 'analyst', 'developer', 'software', 'data', 'operations', 'project', 'consultant'];\nconst EXCLUDE = ['sales representative', 'account executive', 'call center', 'teleoperador', 'camarero',\n  'waiter', 'kitchen', 'limpieza', 'cleaner', 'conductor', 'repartidor', 'mozo de almacen',\n  'beca no remunerada', 'unpaid', 'comercial telefonico'];\nconst noAcc = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g, '');\n\nconst pass = [];\nfor (const item of $input.all()) {\n  const j = item.json;\n  if (j.__sinOfertas) { pass.push({ json: j }); continue; }\n  const hay = noAcc((j.title || '') + ' ' + (j.company || '') + ' ' + (j.descriptionSnippet || ''));\n  if (EXCLUDE.some((w) => hay.includes(w))) continue;\n  const matched = INCLUDE.filter((w) => hay.includes(w));\n  if (matched.length === 0) continue;\n  pass.push({ json: { ...j, __matched: matched.slice(0, 6) }, pairedItem: item.pairedItem });\n}\nreturn pass;\n"
+      },
+      "id": "filtrar",
+      "name": "Filtrar por perfil",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -440,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const store = $getWorkflowStaticData('global');\nconst seen = store.jobsSeen || {};\nconst now = Date.now();\nconst TTL = 21 * 24 * 60 * 60 * 1000;\nfor (const k of Object.keys(seen)) { if (now - seen[k] > TTL) delete seen[k]; }\n\nconst out = [];\nfor (const item of $input.all()) {\n  const j = item.json;\n  if (j.__sinOfertas) { out.push({ json: j }); continue; }\n  const key = (j.link || (j.title + '|' + j.company)).toLowerCase().trim();\n  if (!key || seen[key]) continue;\n  seen[key] = now;\n  out.push({ json: j, pairedItem: item.pairedItem });\n}\nstore.jobsSeen = seen;\nreturn out;\n"
+      },
+      "id": "deduplicar",
+      "name": "Deduplicar ofertas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -220,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Puntuación determinista 0-100. Incluye un ajuste por encaje con el perfil.\nconst noAcc = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g, '');\nconst ROLE_SCORES = { 'aerospace':30,'aeroespacial':30,'space':25,'espacio':25,'artificial intelligence':25,'inteligencia artificial':25,'machine learning':22,'automation':20,'digital transformation':20,'supply chain':18,'industrial engineer':18,'project manager':16,'project engineer':16,'program manager':15,'data':15,'operations':14,'business analyst':14,'consultant':13,'strategy':13,'software':12,'manufacturing':12,'logistics':11,'planning':11,'engineering':9,'engineer':7 };\nconst PRIORITY = ['airbus','boeing','indra','thales','gmv','sener','esa','nasa','spacex','siemens','honeywell','accenture','capgemini','mckinsey','bcg','deloitte','pwc','kpmg','ey','amazon','google','microsoft','sap','seat','nvidia','ibm'];\nconst JUNIOR = ['junior','graduate','trainee','intern','becario','entry level','associate','young talent'];\n\nconst includeTerms = $('Cargar perfil').first().json.profile.include_terms || [];\n\nfunction scoreOne(j) {\n  const hay = noAcc((j.title || '') + ' ' + (j.descriptionSnippet || ''));\n  const company = noAcc(j.company || '');\n  let s = 5;\n  for (const [k, v] of Object.entries(ROLE_SCORES)) if (hay.includes(k)) s += v;\n  if (PRIORITY.some((c) => company.includes(c))) s += 20;\n  if (JUNIOR.some((k) => hay.includes(k))) s += 10;\n  const perfilHits = includeTerms.filter((t) => hay.includes(t)).length;\n  s += Math.min(perfilHits * 6, 24);\n  if (j.postedAt) {\n    const days = (Date.now() - new Date(j.postedAt).getTime()) / 86400000;\n    if (days <= 3) s += 8; else if (days <= 7) s += 4;\n  }\n  return Math.max(0, Math.min(100, Math.round(s)));\n}\n\nconst out = [];\nfor (const item of $input.all()) {\n  const j = item.json;\n  if (j.__sinOfertas) { out.push({ json: j }); continue; }\n  out.push({ json: { ...j, score: scoreOne(j) }, pairedItem: item.pairedItem });\n}\nreturn out;\n"
+      },
+      "id": "scoring",
+      "name": "Scoring de ofertas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const MIN_SCORE = 15;\nconst MAX = 3;\nconst rows = $input.all().map((i) => i.json).filter((j) => !j.__sinOfertas);\nconst top = rows\n  .filter((j) => (j.score || 0) >= MIN_SCORE)\n  .sort((a, b) => (b.score || 0) - (a.score || 0))\n  .slice(0, MAX);\nif (top.length === 0) {\n  return [{ json: { __sinOfertas: true, motivo: 'ninguna oferta nueva superó el umbral de relevancia', evaluadas: rows.length } }];\n}\nreturn top.map((j) => ({ json: j }));\n"
+      },
+      "id": "top3",
+      "name": "Seleccionar TOP 3",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.__sinOfertas === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-ofertas",
+      "name": "¿Sin ofertas?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        440,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_TOKEN_LABORAL }}/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  chat_id: $env.TELEGRAM_CHAT_ID,\n  text: \"🔍 <b>Búsqueda laboral</b>\\n\\nℹ️ Hoy no hay ofertas nuevas relevantes (\" + ($json.motivo || 'sin resultados') + \").\",\n  parse_mode: \"HTML\"\n}) }}",
+        "options": {}
+      },
+      "id": "tg-sin",
+      "name": "Telegram - Sin ofertas",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        680,
+        100
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ (($env.AC_API_URL || '').match(/^https?:\\/\\//) ? ($env.AC_API_URL || '') : 'https://' + ($env.AC_API_URL || '')).replace(/\\/+$/, '') }}/api/ai/generate",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-AC-Service-Token",
+              "value": "={{ $env.AC_SERVICE_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"prompt\": {{ JSON.stringify(\n            \"Eres el asistente de este perfil: \" + $('Cargar perfil').first().json.profile.perfil_texto +\n            \" Explica en un máximo de 45 palabras, en el idioma de código '\" + $('Cargar perfil').first().json.profile.idioma +\n            \"', por qué esta oferta puede encajar con el perfil. No inventes datos que no aparezcan en la oferta.\\n\\nOferta: título=\" + $json.title +\n            \", empresa=\" + $json.company + \", ubicación=\" + $json.location\n          ) }},\n  \"json_schema\": {\n    \"type\": \"object\",\n    \"properties\": {\n      \"resumen\": {\n        \"type\": \"string\"\n      },\n      \"motivo_fit\": {\n        \"type\": \"string\"\n      }\n    },\n    \"required\": [\n      \"resumen\",\n      \"motivo_fit\"\n    ]\n  },\n  \"temperature\": 0.3\n}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 4000
+            }
+          }
+        }
+      },
+      "id": "gemini",
+      "name": "IA - Resumir oferta",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        680,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Lee la respuesta del Automation Center (/api/ai/generate).\n// `data` ya viene parseado; `text` es el respaldo. Se acepta ademas el sobre\n// antiguo de Gemini para que una importacion a medias no falle en silencio.\nfunction leerIA(r) {\n  if (!r) return null;\n  if (r.data && typeof r.data === 'object') return r.data;\n  const crudo = typeof r.text === 'string'\n    ? r.text\n    : (r.candidates && r.candidates[0] && r.candidates[0].content\n       && r.candidates[0].content.parts && r.candidates[0].content.parts[0]\n       && r.candidates[0].content.parts[0].text);\n  if (!crudo) return null;\n  return JSON.parse(String(crudo).replace(/^\\s*```(?:json)?/i, '').replace(/```\\s*$/, ''));\n}\n\n// Une (por índice) cada oferta del TOP 3 con su resumen de la IA.\n// No depende de pairedItem: TOP 3 y la IA mantienen el mismo orden y nº de items.\nconst jobs = $('Seleccionar TOP 3').all().map((i) => i.json).filter((j) => !j.__sinOfertas);\nconst resp = $input.all().map((i) => i.json);\nconst esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\n\nconst out = [];\nfor (let i = 0; i < jobs.length; i++) {\n  const job = jobs[i];\n  let g = {};\n  try { g = leerIA(resp[i]) || {}; } catch (e) {}\n  out.push({ json: {\n    title: esc(job.title || 'Oferta'),\n    company: esc(job.company || '—'),\n    location: esc(job.location || '—'),\n    score: job.score || 0,\n    link: job.link || '',\n    source: job.source || '',\n    resumen: esc(g.resumen || 'Resumen no disponible (la IA no devolvió datos).'),\n    motivo_fit: esc(g.motivo_fit || ''),\n  } });\n}\nreturn out;\n"
+      },
+      "id": "fusionar",
+      "name": "Fusionar oferta + resumen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Un único mensaje con el TOP de ofertas de hoy.\nconst items = $input.all().map((i) => i.json);\nif (items.length === 0) return [];\nconst prof = $('Cargar perfil').first().json.profile;\nconst fecha = new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });\n\nconst bloques = items.map((o, i) =>\n  `<b>${i + 1}. ${o.title}</b>\\n🏢 ${o.company}  ·  📍 ${o.location}\\n⭐ ${o.score}/100  ·  fuente: ${o.source}\\n\\n${o.resumen}` +\n  (o.motivo_fit ? `\\n🎯 ${o.motivo_fit}` : '') +\n  (o.link ? `\\n🔗 ${o.link}` : '')\n).join('\\n\\n━━━━━━━━━━\\n\\n');\n\nconst texto =\n  `💼 <b>OFERTAS DEL DÍA</b>\\n<i>${fecha}</i>\\n` +\n  `<i>sectores: ${prof.sectores} · ${prof.location}</i>\\n\\n` +\n  `━━━━━━━━━━\\n\\n${bloques}\\n\\n━━━━━━━━━━\\n` +\n  `<i>${items.length} oferta(s), las mejores por puntuación</i>`;\n\nreturn [{ json: { texto } }];\n"
+      },
+      "id": "digest",
+      "name": "Construir digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_TOKEN_LABORAL }}/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  chat_id: $env.TELEGRAM_CHAT_ID,\n  text: $json.texto,\n  parse_mode: \"HTML\",\n  disable_web_page_preview: true\n}) }}",
+        "options": {}
+      },
+      "id": "tg-ofertas",
+      "name": "Telegram - Enviar ofertas",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        1340,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "url": "={{ (($env.AC_API_URL || '').match(/^https?:\\/\\//) ? ($env.AC_API_URL || '') : 'https://' + ($env.AC_API_URL || '')).replace(/\\/+$/, '') }}/api/profiles/runtime?profile_id={{ $env.AC_PROFILE_ID }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-AC-Service-Token",
+              "value": "={{ $env.AC_SERVICE_TOKEN }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "perfil-api-node",
+      "name": "Perfil (API)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -1300,
+        220
+      ]
+    }
+  ],
+  "connections": {
+    "Ejecutar ahora": {
+      "main": [
+        [
+          {
+            "node": "Perfil (API)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cada mañana 07:30": {
+      "main": [
+        [
+          {
+            "node": "Perfil (API)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cargar perfil": {
+      "main": [
+        [
+          {
+            "node": "Scraper Playwright",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Scraper Playwright": {
+      "main": [
+        [
+          {
+            "node": "Extraer ofertas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extraer ofertas": {
+      "main": [
+        [
+          {
+            "node": "Filtrar por perfil",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filtrar por perfil": {
+      "main": [
+        [
+          {
+            "node": "Deduplicar ofertas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deduplicar ofertas": {
+      "main": [
+        [
+          {
+            "node": "Scoring de ofertas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Scoring de ofertas": {
+      "main": [
+        [
+          {
+            "node": "Seleccionar TOP 3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Seleccionar TOP 3": {
+      "main": [
+        [
+          {
+            "node": "¿Sin ofertas?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Sin ofertas?": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Sin ofertas",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IA - Resumir oferta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fusionar oferta + resumen": {
+      "main": [
+        [
+          {
+            "node": "Construir digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Construir digest": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Enviar ofertas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IA - Resumir oferta": {
+      "main": [
+        [
+          {
+            "node": "Fusionar oferta + resumen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Perfil (API)": {
+      "main": [
+        [
+          {
+            "node": "Cargar perfil",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "active": false,
+  "versionId": "a1b2c3d4-0002-4000-8000-000000000003",
+  "meta": {}
+}

@@ -7,7 +7,16 @@ from app.config import get_settings
 from app.core.ratelimit import auth_rate_limit
 from app.db import get_db
 from app.models import User
-from app.schemas.auth import LoginIn, LogoutIn, RefreshIn, RegisterIn, TokenOut, UserOut
+from app.schemas.auth import (
+    LoginIn,
+    LogoutIn,
+    PasswordChangeIn,
+    RefreshIn,
+    RegisterIn,
+    SessionOut,
+    TokenOut,
+    UserOut,
+)
 from app.services import auth as auth_service
 from app.services.auth import AuthError
 
@@ -90,3 +99,33 @@ def logout(request: Request, body: LogoutIn, db: Session = Depends(get_db)) -> d
 @router.get("/me", response_model=UserOut)
 def me(user: User = Depends(get_current_user)) -> UserOut:
     return UserOut.model_validate(user)
+
+
+@router.post("/password")
+def change_password(
+    request: Request,
+    body: PasswordChangeIn,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    try:
+        ended = auth_service.change_password(
+            db, user, current=body.current_password, new=body.new_password, correlation_id=_cid(request)
+        )
+    except AuthError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message)
+    return {"changed": True, "sessions_revoked": ended}
+
+
+@router.get("/sessions", response_model=list[SessionOut])
+def sessions(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> list[SessionOut]:
+    return [
+        SessionOut(
+            id=str(r.id),
+            created_at=r.created_at.isoformat() if r.created_at else None,
+            expires_at=r.expires_at.isoformat() if r.expires_at else None,
+            user_agent=r.user_agent[:120],
+            client_ip=r.client_ip,
+        )
+        for r in auth_service.active_sessions(db, user)
+    ]

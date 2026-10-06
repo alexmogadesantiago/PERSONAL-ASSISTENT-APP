@@ -290,16 +290,22 @@ export function useN8nHealth() {
   return useQuery({ queryKey: qk.n8nHealth, queryFn: n8nApi.health, refetchInterval: 30_000, retry: 0 });
 }
 
-export type N8nState = "online" | "offline" | "not_configured" | "unknown";
+export type N8nState = "online" | "invalid" | "offline" | "not_configured" | "unknown";
 
 /**
  * Derive the n8n integration state, using the same vocabulary as the service
  * monitor. "not configured" is not an outage: an environment without n8n wired
  * up must not look broken. Falls back to the pre-`status` response shape so an
  * un-upgraded backend still reads correctly.
+ *
+ * A rejected key outranks `status`. The backend reports an n8n whose HTTP port
+ * answers as `status: "online"` while separately saying `api_key_valid: false`,
+ * and reading only `status` produced a panel that said "connected" directly
+ * above an HTTP 401. Usable is the thing worth reporting, not reachable.
  */
 export function n8nStateOf(data: N8nHealth | undefined, isError = false): N8nState {
   if (!data) return isError ? "offline" : "unknown";
+  if (data.api_key_valid === false) return "invalid";
   if (data.status) return data.status;
   if (!data.api_key_configured) return "not_configured";
   return data.reachable === false ? "offline" : "online";

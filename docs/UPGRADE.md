@@ -21,7 +21,7 @@ instalación existente**. El instalador:
 5. `docker compose build` + `up` con las imágenes/código nuevos;
 6. aplica **solo las migraciones pendientes** (`alembic upgrade head` es no-op
    si ya está al día; en una BD nueva corre `0001 → 0002 → 0003 → …`);
-7. reimporta los 4 workflows (upsert por id — no duplica, no borra);
+7. reimporta los 5 workflows (upsert por id — no duplica, no borra);
 8. health checks. Si alguno falla, termina en **BLOCKED** y el log indica qué.
 
 Los volúmenes (`personal-assistant_postgres_data`, `…_n8n_data`) se conservan

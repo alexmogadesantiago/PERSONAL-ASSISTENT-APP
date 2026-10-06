@@ -3,10 +3,17 @@
 Todas las automatizaciones funcionan **sin tocar código**. Solo hay que dar de
 alta estas credenciales. Ordenadas de menos a más esfuerzo.
 
+> **En el panel:** la página **Credentials** muestra esta misma lista con el
+> estado real de cada credencial (lo que el backend puede comprobar sale como
+> *Ready / Missing / Not working*; lo que vive solo en n8n sale como *Verify in
+> n8n*, nunca como "listo"), enlaces directos para configurarla y la guía OAuth
+> de Google con la redirect URI lista para copiar y los scopes exactos.
+
 | Servicio | Lo usan | Dónde se pone | Coste |
 |---|---|---|---|
 | Proveedor de IA (NVIDIA NIM, OpenRouter o Gemini) | Noticias, Marca Personal, Laboral, Email | **panel web** → Settings → Artificial Intelligence | Gratis / de pago según proveedor |
-| Telegram Bot | Noticias, Marca Personal, Laboral, Email | `.env` | Gratis |
+| Telegram Bot | Noticias, Marca Personal, Laboral, Email | launcher → **Ajustes** (escribe el `.env`) | Gratis |
+| Bot de alertas (opcional) | Sistema - Gestor de errores | launcher → **Ajustes** → `TELEGRAM_TOKEN_ALERTAS` | Gratis |
 | Google OAuth (Gmail + Calendar) | **solo** Email | n8n → Credentials | Gratis |
 
 Nada de esto se sube a git: `.env` está en `.gitignore`.
@@ -117,15 +124,36 @@ Laboral **no lo necesitan**.
 3. Crea otra credencial **"Gmail OAuth2"** igual (puedes reutilizar el mismo
    Client ID/secret).
 4. Abre el workflow **«Asistente - Email»**:
-   - Nodo **Gmail - Correo nuevo** → selecciona la credencial Gmail.
+   - Nodos **Correo nuevo (Gmail)** y **Gmail - Correos recientes (prueba)** →
+     selecciona la credencial Gmail.
    - Nodo **Google Calendar - Crear evento** → selecciona la credencial Calendar
-     y confirma que `Calendar = primary`.
+     (apunta a `primary`). Viene **desactivado**: actívalo cuando quieras que
+     cree eventos en tu calendario.
 5. Pulsa **Execute workflow** para probar con los últimos correos no leídos.
 6. Si va bien, **activa** el workflow.
 
 > Alcances (scopes) que pedirá: lectura de Gmail y gestión de eventos de
 > Calendar. Puedes revocarlos cuando quieras en
 > <https://myaccount.google.com/permissions>.
+
+---
+
+## 4. Avisos de fallo — «Sistema - Gestor de errores»
+
+Los cuatro asistentes tienen como *Error workflow* a `00-error-handler.json`.
+Cuando cualquiera falla:
+
+1. registra el fallo en la actividad del panel (`POST /api/automations/events`,
+   autenticado con `AC_SERVICE_TOKEN`);
+2. avisa por Telegram con el workflow, el nodo, el error y un enlace a la
+   ejecución. Usa `TELEGRAM_TOKEN_ALERTAS` si existe; si no, el primer bot
+   configurado. El mismo fallo se avisa como mucho **una vez por hora**.
+
+No hace falta activarlo: n8n lo ejecuta solo cuando otro workflow falla.
+
+Cada asistente empieza además por un nodo **Comprobar configuracion** que,
+si falta una variable, falla con un mensaje que dice cuál y dónde se pone
+(p. ej. `TELEGRAM_TOKEN_EMAIL (launcher > Ajustes > Bot Email)`).
 
 ---
 
@@ -152,3 +180,4 @@ servicio `playwright/`.
 - [ ] Workflow **Marca Personal** probado → borradores en `output/marca-personal/` → activado
 - [ ] Workflow **Laboral** probado → ofertas a Telegram → activado
 - [ ] (opcional) Google OAuth para **Email** → probado → activado
+- [ ] Panel → **Credentials**: todo lo verificable en *Ready*

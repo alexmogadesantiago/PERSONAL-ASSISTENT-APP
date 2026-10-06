@@ -85,8 +85,18 @@ describe("no credential can reach the browser", () => {
     expect(hits).toEqual([]);
   });
 
-  it("browser storage is used only for the session and the theme", () => {
-    const allowed = new Set(["src/api/tokenStore.ts", "src/stores/theme.tsx"]);
+  it("browser storage is used only for the session, the theme and the transcript", () => {
+    // `conversations.ts` keeps the assistant's chat history in this browser
+    // because the backend has no conversation API. It stores the transcript and
+    // nothing else: no token, no key, and no system context - that block is
+    // rebuilt per request and never persisted.
+    const allowed = new Set([
+      "src/api/tokenStore.ts",
+      "src/stores/theme.tsx",
+      "src/ai/conversations.ts",
+      // a "tour seen" flag; no data
+      "src/pages/OnboardingPage.tsx",
+    ]);
     const hits = productionFiles
       .filter((f) => /localStorage|sessionStorage/.test(readFileSync(f, "utf8")))
       .map(rel)

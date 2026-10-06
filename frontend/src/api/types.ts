@@ -409,6 +409,82 @@ export interface AiFallbackEvent {
   reason: string;
 }
 
+/* --------------------------- automation results -------------------------- */
+
+/** One module the panel can read results from (`/api/pipelines`). */
+export interface PipelineModuleInfo {
+  module: string;
+  label: string;
+  description: string;
+  privacy_note: string;
+  searchable: string[];
+}
+
+/**
+ * Results of one automation, already projected and truncated by the backend.
+ * `items` carries only whitelisted fields - a correo never brings its body.
+ */
+export interface PipelineResult {
+  module: string;
+  label: string;
+  description: string;
+  privacy_note: string;
+  workflow: { id: string; name: string } | null;
+  items: Record<string, unknown>[];
+  count: number;
+  /** Items the inspected executions produced, before `limit`. */
+  available: number;
+  /** The search term this result was ranked against, if any. */
+  query: string;
+  /** How many items actually matched that term. */
+  matched: number;
+  /** True when nothing matched and the most recent items are returned instead. */
+  relaxed: boolean;
+  executions_inspected: number;
+  latest_run_at: string | null;
+  source_nodes: string[];
+  /** Why there is nothing, when there is nothing. */
+  detail: string;
+  cached: boolean;
+}
+
+/* ------------------------------ generation ------------------------------ */
+
+export type AiChatRole = "system" | "user" | "assistant";
+
+export interface AiChatMessage {
+  role: AiChatRole;
+  content: string;
+}
+
+/**
+ * One completion, as `POST /api/ai/generate` accepts it. The caller never says
+ * which provider should answer: that is platform configuration.
+ */
+export interface AiGenerateRequest {
+  messages?: AiChatMessage[];
+  prompt?: string;
+  system?: string;
+  model?: string;
+  temperature?: number;
+  max_tokens?: number;
+  response_format?: Record<string, unknown>;
+  json_schema?: Record<string, unknown>;
+}
+
+export interface AiGenerateResponse {
+  text: string;
+  data: unknown | null;
+  provider: string;
+  model: string;
+  latency_ms: number;
+  finish_reason: string;
+  usage: Record<string, unknown>;
+  used_fallback: boolean;
+  primary_provider: string;
+  primary_error: string;
+}
+
 /** The only response that ever carries the token itself - shown once. */
 export interface AiServiceTokenCreated {
   token: string;

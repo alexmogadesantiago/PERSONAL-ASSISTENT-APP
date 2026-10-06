@@ -9,7 +9,7 @@
     - n8n_data.tgz             (volumen de n8n: credenciales cifradas, settings)
     - env                      (.env - contiene secretos; permisos restringidos)
     - config/                  (perfil de usuario y catálogo)
-    - workflows/               (los 4 workflows en JSON)
+    - workflows/               (los workflows del producto en JSON)
     - manifest.json            (versión, fechas, checksums, conteos)
   El stack puede estar en marcha: los dumps son consistentes.
 
@@ -112,6 +112,7 @@ $manifest | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $dir 'manifest.json
 
 Write-Host ''
 Write-ApLog -Level OK -Message "Backup completo: $dir"
-if ($wf -ne 4) { Write-ApWarn "Aviso: workflow_entity = $wf (esperado 4)." }
+$missingWf = Get-ApMissingWorkflowIds -DockerExe $docker.path -Cwd $RepoRoot
+if ($missingWf -and $missingWf.Count -gt 0) { Write-ApWarn ("Aviso: faltan workflows del producto en n8n: " + ($missingWf -join ', ')) }
 Write-Output $dir
 exit 0

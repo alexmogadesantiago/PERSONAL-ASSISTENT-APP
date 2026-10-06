@@ -2,6 +2,8 @@ import { api } from "./client";
 import type {
   AiConfig,
   AiConfigUpdate,
+  AiGenerateRequest,
+  AiGenerateResponse,
   AiHealth,
   AiModelList,
   AiProviderId,
@@ -17,6 +19,8 @@ import type {
   N8nExecution,
   N8nHealth,
   N8nWorkflow,
+  PipelineModuleInfo,
+  PipelineResult,
   Profile,
   ProfileCatalog,
   ProfileCompleteness,
@@ -131,6 +135,15 @@ export const aiApi = {
   test: (input: { provider?: AiProviderId; model?: string } = {}) =>
     api.post<AiTestResult>("/api/ai/test", input),
   health: (force = false) => api.get<AiHealth>("/api/ai/health", { force }),
+  /**
+   * The same door the automations use. A signed-in session is accepted, so the
+   * panel's assistant talks to whichever provider the platform is configured
+   * with - no second integration, no key in the browser.
+   *
+   * `signal` aborts it: that is what Stop is wired to.
+   */
+  generate: (input: AiGenerateRequest, signal?: AbortSignal) =>
+    api.post<AiGenerateResponse>("/api/ai/generate", input, signal),
   serviceToken: {
     status: () => api.get<AiServiceTokenStatus>("/api/ai/service-token"),
     rotate: () => api.post<AiServiceTokenCreated>("/api/ai/service-token"),
@@ -157,6 +170,26 @@ export const n8nApi = {
     }),
   execution: (id: string, includeData = false) =>
     api.get<N8nExecution>(`/api/n8n/executions/${id}`, { include_data: includeData }),
+};
+
+/**
+ * What the four automations actually produced. The backend reads it out of the
+ * n8n execution store, projects a whitelist of fields and truncates - see
+ * `services/pipelines.py`. Nothing here is stored anywhere else, so these are
+ * the only real results the panel can show.
+ */
+export const pipelinesApi = {
+  modules: () => api.get<{ data: PipelineModuleInfo[] }>("/api/pipelines"),
+  get: (
+    module: string,
+    params: { limit?: number; scan?: number; since?: string; q?: string } = {},
+    signal?: AbortSignal,
+  ) =>
+    api.get<PipelineResult>(
+      `/api/pipelines/${module}`,
+      { limit: params.limit, scan: params.scan, since: params.since, q: params.q },
+      signal,
+    ),
 };
 
 export { api, ApiError, authEvents } from "./client";

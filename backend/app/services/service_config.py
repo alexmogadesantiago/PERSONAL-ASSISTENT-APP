@@ -118,6 +118,24 @@ SPECS: dict[str, ServiceSpec] = {
         default_url="https://generativelanguage.googleapis.com",
         category="ai",
     ),
+    # --- OAuth apps. Admin-owned: the client secret is the encrypted secret,
+    # the client id lives in `meta.client_id`. Users never see these; they
+    # only "Sign in with Google". See services/integrations.
+    "google_oauth": ServiceSpec(
+        key="google_oauth", label="Google OAuth app", needs_url=False, needs_secret=True,
+        settings_secret_attr="google_oauth_client_secret", env_secret_name="AC_GOOGLE_OAUTH_CLIENT_SECRET",
+        category="oauth",
+    ),
+    "microsoft_oauth": ServiceSpec(
+        key="microsoft_oauth", label="Microsoft OAuth app", needs_url=False, needs_secret=True,
+        settings_secret_attr="microsoft_oauth_client_secret", env_secret_name="AC_MICROSOFT_OAUTH_CLIENT_SECRET",
+        category="oauth",
+    ),
+    "github_oauth": ServiceSpec(
+        key="github_oauth", label="GitHub OAuth app", needs_url=False, needs_secret=True,
+        settings_secret_attr="github_oauth_client_secret", env_secret_name="AC_GITHUB_OAUTH_CLIENT_SECRET",
+        category="oauth",
+    ),
     # Not a service to reach: this row carries the AI *selection* (provider,
     # model, fallback) in `meta` and the automation service token in
     # `encrypted_secret`. It never appears as a card or a monitor tile.

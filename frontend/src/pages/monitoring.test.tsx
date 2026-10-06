@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MonitoringPage } from "./MonitoringPage";
+import { Route, Routes } from "react-router-dom";
 import { SettingsPage } from "./SettingsPage";
 import { installFetchStub, renderWithProviders, sampleUser } from "@/test/utils";
 import { setSession } from "@/api/tokenStore";
@@ -312,7 +313,12 @@ describe("SettingsPage service configuration", () => {
       "GET /api/ai/models": { body: { provider: "nvidia_nim", live: true, detail: "", data: [] } },
       "GET /api/auth/me": { body: sampleUser },
     });
-    renderWithProviders(<SettingsPage />);
+    renderWithProviders(
+      <Routes>
+        <Route path="/settings/:section" element={<SettingsPage />} />
+      </Routes>,
+      { route: "/settings/advanced" },
+    );
 
     const url = await screen.findByLabelText(/base url/i);
     await userEvent.type(url, "https://n8n.example.com");
@@ -353,7 +359,12 @@ describe("SettingsPage service configuration", () => {
       "GET /api/ai/models": { body: { provider: "nvidia_nim", live: true, detail: "", data: [] } },
       "GET /api/auth/me": { body: sampleUser },
     });
-    renderWithProviders(<SettingsPage />);
+    renderWithProviders(
+      <Routes>
+        <Route path="/settings/:section" element={<SettingsPage />} />
+      </Routes>,
+      { route: "/settings/advanced" },
+    );
 
     await screen.findByDisplayValue("https://old.example.com");
     await userEvent.click(screen.getByRole("button", { name: /^save$/i }));

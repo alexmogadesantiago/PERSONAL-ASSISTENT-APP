@@ -1,0 +1,337 @@
+{
+  "id": "0ikHqQCWMke67aoI",
+  "name": "Asistente - Noticias",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger-manual",
+      "name": "Ejecutar ahora",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1120,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 8
+            }
+          ]
+        }
+      },
+      "id": "trigger-schedule",
+      "name": "Cada mañana 08:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -1120,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Perfil desde PostgreSQL via /api/profiles/runtime. El feed de Google News\n// ya viene construido con las categorias y el idioma que eligio el usuario.\nconst p = $('Perfil (API)').first().json.profile || {};\nreturn [{ json: { profile: {\n  idioma: p.idioma || 'es',\n  feed_url: p.feed_url || '',\n  tono: p.tono || 'Claro, objetivo y sin adornos.',\n  max_palabras: p.max_palabras || 80,\n  categorias: Array.isArray(p.categorias) ? p.categorias : [],\n  ubicacion: p.location || '',\n} } }];\n"
+      },
+      "id": "cargar-perfil",
+      "name": "Cargar perfil",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -896,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.profile.feed_url }}",
+        "options": {}
+      },
+      "id": "rss-noticias",
+      "name": "RSS - Noticias",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.1,
+      "position": [
+        -688,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const title = ($json.title || '').trim();\nconst link = $json.link || $json.guid || '';\nconst norm = title.toLowerCase()\n  .normalize('NFD').replace(/[\\u0300-\\u036f]/g, '')\n  .replace(/[^a-z0-9 ]/g, '').trim();\n\nreturn { json: {\n  title,\n  link,\n  item_key: 'news:' + norm,\n  source: 'news',\n  text: (title + ' ' + ($json.contentSnippet || $json.content || '')).slice(0, 2000),\n  isoDate: $json.isoDate || $json.pubDate || null,\n} };\n"
+      },
+      "id": "normalizar",
+      "name": "Normalizar noticia",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -464,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Deduplicación persistente entre ejecuciones usando los datos estáticos\n// del workflow (se guardan en la BD interna de n8n). Sin tabla externa.\nconst store = $getWorkflowStaticData('global');\nconst seen = store.newsSeen || {};\nconst now = Date.now();\nconst TTL = 30 * 24 * 60 * 60 * 1000; // 30 días\n\nfor (const k of Object.keys(seen)) {\n  if (now - seen[k] > TTL) delete seen[k];\n}\n\nconst out = [];\nfor (const item of $input.all()) {\n  const key = item.json.item_key;\n  if (!key || key === 'news:' || seen[key]) continue;\n  seen[key] = now;\n  out.push({ json: item.json, pairedItem: item.pairedItem });\n}\nstore.newsSeen = seen;\nreturn out;\n"
+      },
+      "id": "deduplicar",
+      "name": "Deduplicar noticias",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -240,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "maxItems": 5
+      },
+      "id": "limitar",
+      "name": "Máx. 5 por ejecución",
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        -16,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Lee la respuesta del Automation Center (/api/ai/generate).\n// `data` ya viene parseado; `text` es el respaldo. Se acepta ademas el sobre\n// antiguo de Gemini para que una importacion a medias no falle en silencio.\nfunction leerIA(r) {\n  if (!r) return null;\n  if (r.data && typeof r.data === 'object') return r.data;\n  const crudo = typeof r.text === 'string'\n    ? r.text\n    : (r.candidates && r.candidates[0] && r.candidates[0].content\n       && r.candidates[0].content.parts && r.candidates[0].content.parts[0]\n       && r.candidates[0].content.parts[0].text);\n  if (!crudo) return null;\n  return JSON.parse(String(crudo).replace(/^\\s*```(?:json)?/i, '').replace(/```\\s*$/, ''));\n}\n\nconst esc = (s) => String(s == null ? '' : s)\n  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\n\nlet data;\ntry {\n  data = leerIA($json);\n} catch (e) {\n  throw new Error('La respuesta de la IA no es JSON válido: ' + e.message);\n}\nif (!data || !data.titulo || !data.resumen) {\n  throw new Error('JSON de la IA incompleto (falta titulo o resumen)');\n}\n\nlet enlace = '';\ntry { enlace = $('Normalizar noticia').item.json.link || ''; } catch (e) { enlace = ''; }\n\nreturn { json: {\n  titulo: esc(data.titulo),\n  resumen: esc(data.resumen),\n  relevancia: data.relevancia || '',\n  enlace,\n} };\n"
+      },
+      "id": "validar",
+      "name": "Validar JSON IA",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        640,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "={{ $json.texto }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1472,
+        224
+      ],
+      "id": "f26738fb-6f02-4ef5-aa5f-00ffea5a8247",
+      "name": "Send a text message",
+      "webhookId": "c6559a9f-ca4f-4a99-9a0d-cf64dfbbea54",
+      "credentials": {
+        "telegramApi": {
+          "id": "ME0L9as09vfow89m",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ (($env.AC_API_URL || '').match(/^https?:\\/\\//) ? ($env.AC_API_URL || '') : 'https://' + ($env.AC_API_URL || '')).replace(/\\/+$/, '') }}/api/ai/generate",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-AC-Service-Token",
+              "value": "={{ $env.AC_SERVICE_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"prompt\": {{ JSON.stringify(\"Resume esta noticia en máximo 80 palabras en español. Devuelve titulo, resumen, relevancia (alta/media/baja), prioridad (1-5) y enlace.\\n\\nTítulo: \" + $json.title + \"\\nEnlace: \" + $json.link + \"\\nContenido: \" + $json.text) }},\n  \"json_schema\": {\n    \"type\": \"object\",\n    \"properties\": {\n      \"titulo\": {\n        \"type\": \"string\"\n      },\n      \"resumen\": {\n        \"type\": \"string\"\n      },\n      \"relevancia\": {\n        \"type\": \"string\"\n      },\n      \"prioridad\": {\n        \"type\": \"integer\"\n      },\n      \"enlace\": {\n        \"type\": \"string\"\n      }\n    },\n    \"required\": [\n      \"titulo\",\n      \"resumen\",\n      \"relevancia\",\n      \"prioridad\",\n      \"enlace\"\n    ]\n  }\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        192,
+        224
+      ],
+      "id": "c190ef06-7d9f-4522-954c-696518fa3bd3",
+      "name": "IA - Resumir noticia"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all().map(i => i.json);\nconst fecha = new Date().toLocaleDateString('es-ES', { \n  weekday: 'long', day: 'numeric', month: 'long' \n});\n\nconst bloques = items.map((n, i) => \n  `<b>${i + 1}. ${n.titulo}</b>\\n` +\n  `${n.resumen}\\n` +\n  `<a href=\"${n.enlace}\">🔗 Leer noticia</a>`\n).join('\\n\\n━━━━━━━━━━\\n\\n');\n\nconst texto = \n  `📰 <b>TUS NOTICIAS</b>\\n` +\n  `<i>${fecha}</i>\\n\\n` +\n  `━━━━━━━━━━\\n\\n` +\n  `${bloques}\\n\\n` +\n  `━━━━━━━━━━\\n` +\n  `<i>${items.length} noticias seleccionadas</i>`;\n\nreturn [{ json: { texto } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        848,
+        224
+      ],
+      "id": "9f1b9968-5b6f-464c-99cc-40b7d593d414",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "url": "={{ (($env.AC_API_URL || '').match(/^https?:\\/\\//) ? ($env.AC_API_URL || '') : 'https://' + ($env.AC_API_URL || '')).replace(/\\/+$/, '') }}/api/profiles/runtime?profile_id={{ $env.AC_PROFILE_ID }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-AC-Service-Token",
+              "value": "={{ $env.AC_SERVICE_TOKEN }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "perfil-api-node",
+      "name": "Perfil (API)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -1096,
+        224
+      ]
+    }
+  ],
+  "connections": {
+    "Ejecutar ahora": {
+      "main": [
+        [
+          {
+            "node": "Perfil (API)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cada mañana 08:00": {
+      "main": [
+        [
+          {
+            "node": "Perfil (API)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cargar perfil": {
+      "main": [
+        [
+          {
+            "node": "RSS - Noticias",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RSS - Noticias": {
+      "main": [
+        [
+          {
+            "node": "Normalizar noticia",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar noticia": {
+      "main": [
+        [
+          {
+            "node": "Deduplicar noticias",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deduplicar noticias": {
+      "main": [
+        [
+          {
+            "node": "Máx. 5 por ejecución",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Máx. 5 por ejecución": {
+      "main": [
+        [
+          {
+            "node": "IA - Resumir noticia",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Send a text message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IA - Resumir noticia": {
+      "main": [
+        [
+          {
+            "node": "Validar JSON IA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar JSON IA": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Perfil (API)": {
+      "main": [
+        [
+          {
+            "node": "Cargar perfil",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "active": false,
+  "versionId": "a1b2c3d4-0003-4000-8000-000000000003",
+  "meta": {}
+}

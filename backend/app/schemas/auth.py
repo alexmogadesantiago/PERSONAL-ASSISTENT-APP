@@ -69,3 +69,21 @@ class TokenOut(BaseModel):
     token_type: str = "bearer"
     expires_in: int
     user: UserOut
+
+
+class PasswordChangeIn(BaseModel):
+    current_password: str = Field(min_length=1, max_length=256)
+    new_password: str = Field(min_length=1, max_length=256)
+
+    @field_validator("new_password")
+    @classmethod
+    def _new_password(cls, v: str) -> str:
+        return RegisterIn._password(v)  # same policy as registration
+
+
+class SessionOut(BaseModel):
+    id: str
+    created_at: str | None
+    expires_at: str | None
+    user_agent: str
+    client_ip: str

@@ -326,12 +326,15 @@ function Show-SettingsDialog {
     @{ key = 'TELEGRAM_TOKEN_MARCA';    label = 'Bot Marca Personal';    secret = $true }
     @{ key = 'TELEGRAM_TOKEN_LABORAL';  label = 'Bot Laboral';           secret = $true }
     @{ key = 'TELEGRAM_TOKEN_EMAIL';    label = 'Bot Email';             secret = $true }
+    # Opcional: bot dedicado a los avisos de fallo del gestor de errores. Vacio =
+    # los avisos salen por el primer bot configurado de los cuatro de arriba.
+    @{ key = 'TELEGRAM_TOKEN_ALERTAS';  label = 'Bot Alertas (opcional)'; secret = $true }
   )
   $current = Read-ApEnvMap $RepoRoot
 
   $dlg = New-Object System.Windows.Forms.Form
   $dlg.Text = 'Personal Assistant - ajustes de las automatizaciones'
-  $dlg.ClientSize = New-Object System.Drawing.Size(470, 340)
+  $dlg.ClientSize = New-Object System.Drawing.Size(470, 370)
   $dlg.StartPosition = 'CenterParent'
   $dlg.FormBorderStyle = 'FixedDialog'
   $dlg.MaximizeBox = $false; $dlg.MinimizeBox = $false

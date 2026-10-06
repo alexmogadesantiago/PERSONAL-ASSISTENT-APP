@@ -11,6 +11,11 @@ interface ThemeCtx {
 
 const Ctx = createContext<ThemeCtx | null>(null);
 
+/**
+ * The product is designed dark. A stored preference still wins, and so does an
+ * explicit OS preference for light; absent both, dark is the default rather
+ * than a coin flip on `prefers-color-scheme`.
+ */
 function initialTheme(): Theme {
   try {
     const stored = window.localStorage.getItem(KEY);
@@ -18,14 +23,15 @@ function initialTheme(): Theme {
   } catch {
     /* ignore */
   }
-  return window.matchMedia?.("(prefers-color-scheme: dark)")?.matches ? "dark" : "light";
+  return window.matchMedia?.("(prefers-color-scheme: light)")?.matches ? "light" : "dark";
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<Theme>(initialTheme);
 
   useEffect(() => {
-    document.documentElement.classList.toggle("dark", theme === "dark");
+    // Dark is the base stylesheet; the `light` class is what overrides it.
+    document.documentElement.classList.toggle("light", theme === "light");
     try {
       window.localStorage.setItem(KEY, theme);
     } catch {

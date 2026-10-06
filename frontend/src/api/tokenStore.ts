@@ -16,6 +16,13 @@ export interface Session {
   refresh_token: string;
   expires_at: number; // epoch ms
   user: User;
+  /**
+   * When `/api/auth/me` last confirmed this session, epoch ms. Persisted so a
+   * reload does not re-verify what was verified a second ago - see
+   * `api/identity.ts`. Absent on a session stored by an older build, which
+   * simply means "verify now".
+   */
+  validated_at?: number;
 }
 
 type Listener = (session: Session | null) => void;
@@ -65,6 +72,9 @@ export function fromTokenResponse(r: {
     refresh_token: r.refresh_token,
     expires_at: Date.now() + r.expires_in * 1000,
     user: r.user,
+    // The server just authenticated this token and told us who it belongs to;
+    // asking it again immediately would be asking a question we know.
+    validated_at: Date.now(),
   };
 }
 

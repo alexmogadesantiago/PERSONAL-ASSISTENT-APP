@@ -14,7 +14,7 @@ Menú Inicio → **Automation Center → Copia de seguridad**.
 | `n8n_data.tgz` | volumen de n8n: `config` (clave), credenciales cifradas, settings |
 | `env` | copia de `.env` (secretos — ACL restringido al usuario) |
 | `config/` | `user_profile.json` + catálogo |
-| `workflows/` | los 4 workflows JSON |
+| `workflows/` | los 5 workflows JSON (4 asistentes + gestor de errores) |
 | `manifest.json` | versión, fechas, `workflow_entity`, checksums SHA-256 |
 
 Los dumps se hacen con el stack **en marcha** (son consistentes). No hay

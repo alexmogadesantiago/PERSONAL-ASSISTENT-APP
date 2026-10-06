@@ -265,3 +265,37 @@ def _revoke_family(db: Session, family_id: uuid.UUID, *, reason: str) -> None:
     for r in rows:
         r.revoked_at = now
     db.flush()
+
+
+def change_password(
+    db: Session, user: User, *, current: str, new: str, correlation_id: str | None = None
+) -> int:
+    """Verify the current password, store the new hash and sign every session
+    out (all refresh tokens revoked). Returns how many sessions were ended."""
+    if not verify_password(current, user.password_hash):
+        audit.record(db, type="auth.password_change_failed", severity=EventSeverity.warning,
+                     message="password change refused: wrong current password", actor_id=user.id,
+                     correlation_id=correlation_id)
+        raise AuthError("wrong_password", "current password is incorrect", 400)
+    if verify_password(new, user.password_hash):
+        raise AuthError("same_password", "the new password must be different", 400)
+    user.password_hash = hash_password(new)
+    rows = db.scalars(
+        select(RefreshToken).where(RefreshToken.user_id == user.id, RefreshToken.revoked_at.is_(None))
+    ).all()
+    now = _now()
+    for r in rows:
+        r.revoked_at = now
+    db.flush()
+    audit.record(db, type="auth.password_change", severity=EventSeverity.warning,
+                 message="password changed; all sessions signed out", actor_id=user.id,
+                 correlation_id=correlation_id, meta={"sessions_revoked": len(rows)})
+    return len(rows)
+
+
+def active_sessions(db: Session, user: User) -> list[RefreshToken]:
+    return list(db.scalars(
+        select(RefreshToken)
+        .where(RefreshToken.user_id == user.id, RefreshToken.revoked_at.is_(None), RefreshToken.expires_at > _now())
+        .order_by(RefreshToken.created_at.desc())
+    ).all())
