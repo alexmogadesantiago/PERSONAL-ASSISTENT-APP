@@ -509,8 +509,10 @@ function Invoke-ApHealthChecks {
   $results['http:profile']  = Test-HttpHealthy "http://localhost:$ProfilePort/health"
   $results['http:backend']  = Test-HttpHealthy "http://localhost:$BackendPort/api/health"
   $results['http:frontend'] = Test-HttpHealthy "http://localhost:$FrontendPort/"
-  $n = Get-N8nWorkflowCount -DockerExe $DockerExe -Cwd $Cwd
-  $results['n8n:workflow_entity=4'] = ($n -eq 4)
+  # Por id y no por total: el producto lleva 5 workflows (4 asistentes + el gestor
+  # de errores) y el usuario puede tener los suyos.
+  $missing = Get-ApMissingWorkflowIds -DockerExe $DockerExe -Cwd $Cwd
+  $results['n8n:product workflows present'] = ($null -ne $missing -and @($missing).Count -eq 0)
   return $results
 }
 
