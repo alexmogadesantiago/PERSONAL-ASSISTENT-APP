@@ -34,6 +34,7 @@ const MonitoringPage = page(() => import("@/pages/MonitoringPage"), "MonitoringP
 const LogsPage = page(() => import("@/pages/LogsPage"), "LogsPage");
 const SettingsPage = page(() => import("@/pages/SettingsPage"), "SettingsPage");
 const InboxPage = page(() => import("@/pages/InboxPage"), "InboxPage");
+const CalendarPage = page(() => import("@/pages/CalendarPage"), "CalendarPage");
 const TasksPage = page(() => import("@/pages/TasksPage"), "TasksPage");
 const EnginePage = page(() => import("@/pages/EnginePage"), "EnginePage");
 const PresentationPage = page(() => import("@/pages/PresentationPage"), "PresentationPage");
@@ -103,6 +104,7 @@ export const routes: RouteObject[] = [
           { path: "onboarding", element: s(<OnboardingPage />) },
           { path: "assistant", element: s(<AiAssistantPage />) },
           { path: "inbox", element: s(<InboxPage />) },
+          { path: "calendar", element: s(<CalendarPage />) },
           { path: "tasks", element: s(<TasksPage />) },
           { path: "engine", element: s(<EnginePage />) },
           { path: "automations", element: s(<AutomationsPage />) },

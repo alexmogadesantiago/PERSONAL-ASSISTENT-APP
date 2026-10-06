@@ -229,3 +229,48 @@ export function InsightsCard() {
     </Card>
   );
 }
+
+/** TODAY'S AGENDA: the day's events, or one button to connect the calendar. */
+export function AgendaCard() {
+  const t = useTodaySnapshot();
+  const navigate = useNavigate();
+  const needsGoogle = t.error instanceof ApiError && t.error.status === 409;
+  const events = t.data?.events ?? [];
+  return (
+    <Card>
+      <CardTitle
+        icon={<ICalendar width={16} height={16} />}
+        action={
+          <Button size="xs" variant="secondary" onClick={() => navigate("/calendar")}>
+            Open calendar
+          </Button>
+        }
+      >
+        Today's agenda
+      </CardTitle>
+      {t.isLoading ? (
+        <Skeleton className="h-16" />
+      ) : events.length > 0 ? (
+        <ul className="space-y-1.5">
+          {events.slice(0, 5).map((e) => (
+            <li key={e.title + e.start} className="flex gap-3 text-sm">
+              <span className="w-12 shrink-0 tabular-nums text-muted">{e.start && e.start.length > 10 ? e.start.slice(11, 16) : "all day"}</span>
+              <span className="text-fg">{e.title}</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-muted">
+            {needsGoogle || (t.data?.notes ?? []).some((n) => /not connected/i.test(n))
+              ? "Connect Google to see your events here and add new ones."
+              : "No events today."}
+          </p>
+          <Button size="sm" variant={needsGoogle ? "primary" : "secondary"} onClick={() => navigate(needsGoogle ? "/integrations/google" : "/calendar")}>
+            {needsGoogle ? "Connect Google" : "Add an event"}
+          </Button>
+        </div>
+      )}
+    </Card>
+  );
+}

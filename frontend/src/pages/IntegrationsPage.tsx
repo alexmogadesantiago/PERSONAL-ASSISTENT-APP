@@ -6,7 +6,6 @@
  * it last synced - and the one action that matters right now. Credentials are
  * never shown; the security strip says how they are protected.
  */
-import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import type { Integration } from "@/api/platform";
 import { useIntegrations, useOverview } from "@/hooks/platform";
@@ -16,7 +15,9 @@ import { IArrowRight, IKey, ILock, IRefresh, IShieldCheck, ProviderMark } from "
 import { relativeTime } from "@/utils/format";
 import { cn } from "@/utils/cn";
 import { isUnhealthy, primaryAction, ServiceIcon } from "@/features/integrations/meta";
-import { AdvancedSetupDrawer, OAuthConnectDrawer, TelegramSetupDrawer } from "@/features/integrations/ConnectFlows";
+import { useConnectFlow } from "@/features/integrations/useConnectFlow";
+
+export { useConnectFlow };
 import { PlatformCards } from "@/features/home/Briefing";
 
 export function IntegrationCard({ i, onConnect }: { i: Integration; onConnect: (i: Integration) => void }) {
@@ -107,32 +108,6 @@ export function IntegrationCard({ i, onConnect }: { i: Integration; onConnect: (
       </div>
     </article>
   );
-}
-
-export function useConnectFlow() {
-  const [target, setTarget] = useState<Integration | null>(null);
-  const [advanced, setAdvanced] = useState<Integration | null>(null);
-  const open = (i: Integration) => setTarget(i);
-  const drawers = (
-    <>
-      {target && target.key === "telegram" && (
-        <TelegramSetupDrawer integration={target} open onClose={() => setTarget(null)} />
-      )}
-      {target && target.key !== "telegram" && (
-        <OAuthConnectDrawer
-          integration={target}
-          open
-          onClose={() => setTarget(null)}
-          onAdvanced={() => {
-            setAdvanced(target);
-            setTarget(null);
-          }}
-        />
-      )}
-      {advanced && <AdvancedSetupDrawer integration={advanced} open onClose={() => setAdvanced(null)} />}
-    </>
-  );
-  return { open, openAdvanced: setAdvanced, drawers };
 }
 
 export function IntegrationsPage() {

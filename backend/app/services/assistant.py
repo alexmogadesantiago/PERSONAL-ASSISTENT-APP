@@ -319,6 +319,48 @@ def _deadlines(db: Session, user_id: uuid.UUID, days: int = 7) -> list[dict]:
     return out[:8]
 
 
+# -------------------------------------------------------- calendar (full) ----
+
+async def calendar_events(db: Session, user_id: uuid.UUID, days: int = 7) -> list[dict]:
+    """Upcoming events, today first. Demo mode answers from the sample day."""
+    days = max(1, min(int(days), 31))
+    if is_demo(db, user_id):
+        today = demo.events()
+        out = list(today)
+        for n in range(1, min(days, 4)):
+            for e in today[:1]:
+                shift = dt.timedelta(days=n)
+                out.append(e | {"title": e["title"] + " (demo)",
+                                "start": (dt.datetime.fromisoformat(e["start"]) + shift).isoformat(),
+                                "end": (dt.datetime.fromisoformat(e["end"]) + shift).isoformat()})
+        return sorted(out, key=lambda e: e["start"])
+    try:
+        return await actions.calendar_list(_ctx(db, user_id), {"days": days}, {})
+    except actions.ActionError as exc:
+        raise _wrap(exc)
+
+
+async def create_event(db: Session, user_id: uuid.UUID, title: str, start: str, duration_minutes: int = 30,
+                       notes: str = "") -> dict:
+    """Adds an event to the primary calendar. The UI asks the user to confirm first."""
+    title = (title or "").strip()
+    if not title:
+        raise AssistantError("An event needs a title.", 422)
+    if is_demo(db, user_id):
+        return {"created": False, "demo": True, "message": "Demo mode: no event was created."}
+    try:
+        res = await actions.calendar_create(
+            _ctx(db, user_id), {"title": title[:200], "start": start, "duration_minutes": max(5, min(int(duration_minutes), 1440)),
+                                "description": notes[:1000]}, {})
+    except actions.ActionError as exc:
+        raise _wrap(exc)
+    from app.services import audit
+
+    audit.record(db, type="assistant.event_created", actor_id=user_id, message=f"calendar event created: {title[:80]}",
+                 meta={"provider": "google"})
+    return {"created": True, "link": (res[0] or {}).get("event_link", "") if res else ""}
+
+
 # -------------------------------------------------------------- briefing ----
 
 def greeting(hour: int | None = None) -> str:

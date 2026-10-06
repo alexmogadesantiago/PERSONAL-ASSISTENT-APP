@@ -98,6 +98,32 @@ async def modify(body: ModifyIn, message_id: str = MessageId, user: User = Depen
         _err(exc)
 
 
+# -------------------------------------------------------------- calendar ----
+
+@router.get("/calendar")
+async def calendar(days: int = Query(default=7, ge=1, le=31), user: User = Depends(get_current_user),
+                   db: Session = Depends(get_db)):
+    try:
+        return {"data": await assistant.calendar_events(db, user.id, days), "demo": assistant.is_demo(db, user.id)}
+    except assistant.AssistantError as exc:
+        _err(exc)
+
+
+class EventIn(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    start: str = Field(min_length=10, max_length=40, description="ISO date-time, e.g. 2026-10-09T17:00")
+    duration_minutes: int = Field(default=30, ge=5, le=1440)
+    notes: str = Field(default="", max_length=1000)
+
+
+@router.post("/calendar/events", status_code=201)
+async def create_event(body: EventIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    try:
+        return await assistant.create_event(db, user.id, body.title, body.start, body.duration_minutes, body.notes)
+    except assistant.AssistantError as exc:
+        _err(exc)
+
+
 # ------------------------------------------------- briefing / insights / ask --
 
 @router.post("/briefing")

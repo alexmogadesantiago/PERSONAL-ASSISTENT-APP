@@ -9,6 +9,8 @@ import { TasksPage } from "./TasksPage";
 import { EnginePage } from "./EnginePage";
 import { InboxPage } from "./InboxPage";
 import { PresentationPage } from "./PresentationPage";
+import { CalendarPage } from "./CalendarPage";
+import { ServiceStrip } from "@/features/home/Briefing";
 import { DemoSection, MemorySection, PrivacySection, SecurityCenter } from "./settings/AssistantSections";
 import { DisconnectDialog, CredentialHealth, PermissionsCenter, TestProgress } from "@/features/integrations/ConnectionPanels";
 import { ShortcutsDialog, useGlobalShortcuts } from "@/components/shell/Shortcuts";
@@ -442,5 +444,51 @@ describe("Presentation view", () => {
     expect(screen.getByText("Gemini timed out after 30 s")).toBeInTheDocument();
     expect(screen.getByText("You stay in control")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Exit presentation" })).toHaveAttribute("href", "/dashboard");
+  });
+});
+
+
+/* ----------------------------------------------------- calendar & services */
+
+describe("CalendarPage", () => {
+  it("lists events by day and creates a real event from the form", async () => {
+    const { calls } = installFetchStub({
+      "GET /api/assistant/calendar": { body: { data: [{ title: "Matemáticas", start: "2026-10-06T09:00:00+02:00", end: "", location: "Aula 12", link: "https://cal/e1" }] } },
+      "POST /api/assistant/calendar/events": { status: 201, body: { created: true, link: "https://cal/new" } },
+    });
+    renderWithProviders(<CalendarPage />);
+    expect(await screen.findByText("Matemáticas")).toBeInTheDocument();
+    expect(screen.getByText("Aula 12")).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText("Title"), "Reunión TDR");
+    await userEvent.click(screen.getByRole("button", { name: "Add to calendar" }));
+    await waitFor(() => expect(calls.some((c) => c.init?.method === "POST" && String(c.init.body).includes("Reunión TDR"))).toBe(true));
+  });
+
+  it("offers to connect Google instead of an empty page", async () => {
+    installFetchStub({ "GET /api/assistant/calendar": { status: 409, body: { detail: { message: "Connect Google Workspace to use this step.", provider: "google" } } } });
+    renderWithProviders(<CalendarPage />);
+    expect(await screen.findByText("Connect Google Calendar")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Connect Google" })).toHaveAttribute("href", "/integrations/google");
+  });
+});
+
+describe("Service cards on Home", () => {
+  it("shows Gmail, Calendar, Drive, AI, Telegram and n8n, each with a button that does something", async () => {
+    installFetchStub({ "GET /api/integrations": { body: { data: [{ ...google, connection: { ...(google as { connection: object }).connection, services: ["gmail"] } }, { ...google, key: "telegram", label: "Telegram", auth: "bot_token", status: "not_connected", connected: false, connection: null }], store_configured: true } } });
+    renderWithProviders(<ServiceStrip />);
+    const region = await screen.findByRole("region", { name: "Services" });
+    for (const name of ["Gmail", "Calendar", "Drive", "Telegram", "n8n engine"]) expect(within(region).getByText(name)).toBeInTheDocument();
+    expect(within(region).getByText(/^AI/)).toBeInTheDocument();
+    // Gmail is granted -> Open; Calendar and Drive are not granted -> Allow; Telegram is not connected -> Connect
+    expect(await within(region).findAllByRole("button", { name: "Allow" })).toHaveLength(2);
+    expect(within(region).getAllByRole("button", { name: "Connect" }).length).toBeGreaterThanOrEqual(1);
+    expect(within(region).getAllByRole("button", { name: "Open" }).length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("nothing connected: every Google service offers Connect", async () => {
+    installFetchStub({ "GET /api/integrations": { body: { data: [{ ...google, status: "not_connected", connected: false, connection: null }], store_configured: true } } });
+    renderWithProviders(<ServiceStrip />);
+    const region = await screen.findByRole("region", { name: "Services" });
+    await waitFor(() => expect(within(region).getAllByRole("button", { name: "Connect" }).length).toBeGreaterThanOrEqual(3));
   });
 });

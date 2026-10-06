@@ -583,3 +583,35 @@ def test_a_date_without_a_time_is_due_at_the_end_of_that_day(client):
     assert late["overdue"] is True
     exact = client.post("/api/assistant/tasks", headers=h, json={"title": "exact", "due": "2030-01-01T09:30:00+00:00"}).json()
     assert exact["due_at"].startswith("2030-01-01T09:30")
+
+
+def test_calendar_lists_and_creates_events_and_demo_creates_nothing(client, rec, session_factory):
+    token = register(client)
+    h = auth(token)
+    assert client.get("/api/assistant/calendar", headers=h).status_code == 409, "without Google it says so"
+    _connect(session_factory)
+    from app.services.integrations import http as int_http
+
+    base = rec.__call__
+
+    def with_events(req):
+        if req.method == "GET" and "calendar/v3/calendars/primary/events" in str(req.url):
+            return httpx.Response(200, json={"items": [{"summary": "Matemáticas", "start": {"dateTime": "2026-10-06T09:00:00+02:00"},
+                                                        "end": {"dateTime": "2026-10-06T10:00:00+02:00"}, "htmlLink": "https://cal/e1"}]})
+        return base(req)
+
+    int_http.set_transport(httpx.MockTransport(with_events))
+    listed = client.get("/api/assistant/calendar?days=7", headers=h).json()
+    assert listed["data"][0]["title"] == "Matemáticas" and listed["demo"] is False
+    made = client.post("/api/assistant/calendar/events", headers=h,
+                       json={"title": "Reunión TDR", "start": "2026-10-09T17:00", "duration_minutes": 45})
+    assert made.status_code == 201 and made.json()["created"] is True
+    assert rec.created_events[-1]["summary"] == "Reunión TDR"
+    assert client.post("/api/assistant/calendar/events", headers=h, json={"title": "x", "start": "not-a-date-at-all"}).status_code == 422 \
+        or client.post("/api/assistant/calendar/events", headers=h, json={"title": "x", "start": "not-a-date-at-all"}).status_code == 400
+    client.put("/api/assistant/memory/preferences", headers=h, json={"key": "demo_mode", "value": True})
+    demo_events = client.get("/api/assistant/calendar", headers=h).json()
+    assert demo_events["demo"] is True and len(demo_events["data"]) >= 3
+    before = len(rec.created_events)
+    d = client.post("/api/assistant/calendar/events", headers=h, json={"title": "demo", "start": "2026-10-09T17:00"}).json()
+    assert d["created"] is False and len(rec.created_events) == before

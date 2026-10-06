@@ -19,7 +19,7 @@ import { WeekChart } from "@/features/home/WeekChart";
 import { SetupChecklist, useSetupProgress } from "@/features/home/setup";
 import { ActivityRow } from "@/features/activity/ActivityList";
 import { BriefingCard, ServiceStrip } from "@/features/home/Briefing";
-import { AutomationsCard, CommandBar, InsightsCard, TodayCard, greeting } from "@/features/home/CommandCenter";
+import { AgendaCard, AutomationsCard, CommandBar, InsightsCard, TodayCard, greeting } from "@/features/home/CommandCenter";
 import { wasOnboarded } from "./OnboardingPage";
 
 export function DashboardPage() {
@@ -72,6 +72,8 @@ export function DashboardPage() {
       </div>
 
       <ServiceStrip />
+
+      <AgendaCard />
 
       <InsightsCard />
 

@@ -3,7 +3,9 @@
  * automation engine, shown next to the integrations because the user thinks of
  * them as services too - "Gemini · connected · 37 requests · 1.8 s".
  */
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { ServiceIcon } from "@/features/integrations/meta";
+import { useConnectFlow } from "@/features/integrations/useConnectFlow";
 import { useMutation } from "@tanstack/react-query";
 import { assistantApi } from "@/api/platform";
 import { n8nStateOf, useAiConfig, useAiHealth, useN8nHealth } from "@/hooks/queries";
@@ -130,35 +132,64 @@ export function BriefingCard() {
   );
 }
 
-/** Gmail · Gemini/AI · Telegram · n8n at a glance. */
+/**
+ * Every service the assistant uses, as a card you can act on: Gmail, Calendar,
+ * Drive, the AI, Telegram and n8n. Not connected → a Connect button that opens
+ * the sign-in right here; connected → open it; broken → fix it.
+ */
 export function ServiceStrip() {
   const integrations = useIntegrations();
   const ai = useAiHealth();
   const n8n = useN8nHealth();
+  const flow = useConnectFlow();
+  const navigate = useNavigate();
   const list = integrations.data?.data ?? [];
   const google = list.find((i) => i.key === "google");
   const tg = list.find((i) => i.key === "telegram");
   const n8nState = n8nStateOf(n8n.data, n8n.isError);
-  const items: { key: string; label: string; to: string; mark: string; state: HealthState }[] = [
-    { key: "gmail", label: "Gmail", to: "/integrations/google", mark: "google", state: google?.connection?.services.includes("gmail") ? google.status : "not_connected" },
-    { key: "ai", label: ai.data?.provider ? `AI · ${ai.data.provider}` : "AI", to: "/settings/ai", mark: "ai", state: ai.data?.status === "online" ? "healthy" : ai.data?.status === "degraded" ? "degraded" : ai.data?.status === "not_configured" ? "not_connected" : ai.data ? "error" : "unknown" },
-    { key: "telegram", label: "Telegram", to: "/integrations/telegram", mark: "telegram", state: tg?.status ?? "unknown" },
-    { key: "n8n", label: "n8n engine", to: "/settings/automations", mark: "n8n", state: n8nState === "online" ? "healthy" : n8nState === "not_configured" ? "not_connected" : n8nState === "unknown" ? "unknown" : "error" },
+  const g = (svc: string): HealthState => (!google?.connected ? "not_connected" : google.connection?.services.includes(svc) ? google.status : "not_connected");
+  const aiState: HealthState = ai.data?.status === "online" ? "healthy" : ai.data?.status === "degraded" ? "degraded" : ai.data?.status === "not_configured" ? "not_connected" : ai.data ? "error" : "unknown";
+  type Tile = { key: string; label: string; icon: React.ReactNode; state: HealthState; open: string; connect: () => void; allow?: boolean };
+  const tiles: Tile[] = [
+    { key: "gmail", label: "Gmail", icon: <ServiceIcon service="gmail" size={18} />, state: g("gmail"), open: "/inbox", connect: () => google && flow.open(google), allow: !!google?.connected },
+    { key: "calendar", label: "Calendar", icon: <ServiceIcon service="calendar" size={18} />, state: g("calendar"), open: "/calendar", connect: () => google && flow.open(google), allow: !!google?.connected },
+    { key: "drive", label: "Drive", icon: <ServiceIcon service="drive" size={18} />, state: g("drive"), open: "/integrations/google", connect: () => google && flow.open(google), allow: !!google?.connected },
+    { key: "ai", label: ai.data?.provider ? `AI · ${ai.data.provider}` : "AI", icon: <ISparkles width={18} height={18} className="text-brand" />, state: aiState, open: "/settings/ai", connect: () => navigate("/settings/ai") },
+    { key: "telegram", label: "Telegram", icon: <ProviderMark provider="telegram" size={18} />, state: tg?.status ?? "unknown", open: "/integrations/telegram", connect: () => tg && flow.open(tg) },
+    { key: "n8n", label: "n8n engine", icon: <IBolt width={18} height={18} className="text-brand" />, state: n8nState === "online" ? "healthy" : n8nState === "not_configured" ? "not_connected" : n8nState === "unknown" ? "unknown" : "error", open: "/engine", connect: () => navigate("/settings/advanced") },
   ];
   return (
-    <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
-      {items.map((s) => (
-        <Link key={s.key} to={s.to} className="card-interactive flex items-center gap-3 p-3">
-          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-surface-2">
-            {s.mark === "n8n" ? <IBolt width={17} height={17} className="text-brand" /> : <ProviderMark provider={s.mark} size={18} />}
-          </span>
-          <div className="min-w-0">
-            <p className="truncate text-sm font-medium text-fg">{s.label}</p>
-            <HealthBadge state={s.state} />
+    <section aria-label="Services" className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
+      {tiles.map((t) => {
+        const off = t.state === "not_connected";
+        const bad = t.state === "error" || t.state === "expired" || t.state === "auth_required";
+        return (
+          <div key={t.key} className="card flex min-w-0 flex-col gap-2 p-3">
+            <div className="flex items-center gap-2.5">
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-surface-2">{t.icon}</span>
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-fg">{t.label}</p>
+                <HealthBadge state={t.state} />
+              </div>
+            </div>
+            {off ? (
+              <Button size="xs" variant="primary" onClick={t.connect}>
+                {t.allow ? "Allow" : "Connect"}
+              </Button>
+            ) : bad ? (
+              <Button size="xs" variant="danger" onClick={t.connect}>
+                Reconnect
+              </Button>
+            ) : (
+              <Button size="xs" variant="secondary" onClick={() => navigate(t.open)}>
+                Open
+              </Button>
+            )}
           </div>
-        </Link>
-      ))}
-    </div>
+        );
+      })}
+      {flow.drawers}
+    </section>
   );
 }
 

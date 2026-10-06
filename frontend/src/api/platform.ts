@@ -601,6 +601,14 @@ export interface Showcase {
   emails: { id: string; from: string; subject: string; snippet: string; date: string }[];
 }
 
+export interface CalendarEvent {
+  title: string;
+  start: string | null;
+  end: string | null;
+  location: string;
+  link: string;
+}
+
 export type Tone = "default" | "formal" | "informal" | "concise" | "detailed";
 export type MailAction = "archive" | "important" | "not_important" | "read";
 
@@ -617,6 +625,9 @@ export const assistantApi = {
     api.post<{ sent: boolean; demo?: boolean; message?: string }>(`/api/assistant/mail/${id}/reply`, { body }),
   modify: (id: string, action: MailAction) =>
     api.post<{ done: boolean; demo?: boolean; message?: string }>(`/api/assistant/mail/${id}/modify`, { action }),
+  calendar: (days = 7) => api.get<{ data: CalendarEvent[]; demo?: boolean }>("/api/assistant/calendar", { days }),
+  createEvent: (v: { title: string; start: string; duration_minutes?: number; notes?: string }) =>
+    api.post<{ created: boolean; link?: string; demo?: boolean; message?: string }>("/api/assistant/calendar/events", v),
   briefing: (summary = true) => api.post<Briefing>(`/api/assistant/briefing?summary=${summary}`),
   briefingToTelegram: () =>
     api.post<{ sent: boolean; demo?: boolean; message?: string }>("/api/assistant/briefing/telegram"),

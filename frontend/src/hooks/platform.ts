@@ -380,3 +380,19 @@ export function useTodaySnapshot() {
     retry: 0,
   });
 }
+
+
+export function useCalendar(days = 7) {
+  return useQuery({ queryKey: ["assistant", "calendar", days], queryFn: () => assistantApi.calendar(days), staleTime: 60_000, retry: 0 });
+}
+
+export function useCreateEvent() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: assistantApi.createEvent,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["assistant", "calendar"] });
+      qc.invalidateQueries({ queryKey: ["assistant", "briefing"] });
+    },
+  });
+}
