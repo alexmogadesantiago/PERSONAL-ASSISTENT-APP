@@ -4,6 +4,7 @@
 ;
 ;  Compilar:
 ;     ISCC.exe /DAppVersion=3.0.0 installer\windows\PersonalAssistant.iss
+;     (build\build-offline.ps1 añade /DOffline=1 -> Personal-Assistant-Setup-Full.exe)
 ;  (build\build-exe.ps1 lee VERSION y pasa /DAppVersion automáticamente.)
 ;
 ;  El .exe empaqueta la LISTA BLANCA de [Files] (docker-compose + los cuatro
@@ -39,10 +40,18 @@ DefaultGroupName=Personal Assistant
 DisableProgramGroupPage=yes
 AllowNoIcons=yes
 OutputDir={#RepoRoot}\dist
+#ifdef Offline
+OutputBaseFilename=Personal-Assistant-Setup-Full
+#else
 OutputBaseFilename=Personal-Assistant-Setup
+#endif
 ; Lista de TODO lo que entra en el .exe. build\verify-package.ps1 la audita
 ; (ningun *.pem, .claude\, worktree, .venv ni web.py puede aparecer aqui).
+#ifdef Offline
+OutputManifestFile=Setup-Manifest-Full.txt
+#else
 OutputManifestFile=Setup-Manifest.txt
+#endif
 SetupIconFile=assets\personal-assistant.ico
 UninstallDisplayIcon={app}\installer\windows\assets\personal-assistant.ico
 UninstallDisplayName={#AppName}
@@ -87,6 +96,12 @@ Name: "desktopicon"; Description: "Crear acceso directo en el escritorio"; Group
 #define NeverShip "*.pem,*.key,*.p12,*.pfx,id_rsa*,.env,.env.local,.env.backup*,.git,.claude,worktrees,node_modules,__pycache__,*.pyc,.pytest_cache,.venv,venv,*.egg-info,.coverage,htmlcov,*.log"
 
 ; --- raiz: solo los ficheros que el stack lee en tiempo de ejecucion ---
+#ifdef Offline
+; Variante "Full": las imágenes de Docker ya construidas (docker save + gzip, ver
+; build\build-offline.ps1). Ya vienen comprimidas: sin recomprimir. install.ps1 las
+; carga con `docker load` y NO construye ni descarga nada.
+Source: "{#RepoRoot}\dist\offline\images.tar.gz"; DestDir: "{app}\offline"; Flags: ignoreversion nocompression
+#endif
 Source: "{#RepoRoot}\docker-compose.yml"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#RepoRoot}\VERSION";            DestDir: "{app}"; Flags: ignoreversion
 ; El .dockerignore de la raiz es el del contexto de build del backend: es lo

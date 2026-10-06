@@ -207,3 +207,16 @@ Icono de bandeja (si lo activaste): mismo menú + estado ● Running/Stopped.
 
 Detalle de actualización y backup: [UPGRADE.md](UPGRADE.md) ·
 [BACKUP-RESTORE.md](BACKUP-RESTORE.md).
+
+## Instalador completo (todo en un solo `.exe`)
+
+`Personal-Assistant-Setup-Full.exe` (~1,3 GB) lleva **dentro** el código, los
+workflows y las imágenes de Docker ya construidas (backend, panel, perfil,
+Playwright, PostgreSQL y n8n). Al instalar **no descarga ni compila nada**: hace
+`docker load` y arranca. Sirve para instalar sin internet.
+
+- Requisito previo (el único que no puede ir dentro): **Docker Desktop** instalado.
+- Se construye con `build\build-offline.ps1` (usa `-SkipBuild` para reutilizar las imágenes que ya tengas).
+- El instalador normal (`Personal-Assistant-Setup.exe`, ~2,6 MB) sigue existiendo: construye las imágenes en el primer arranque y necesita internet.
+- Al terminar de cargar, borra el paquete de imágenes del disco (~1,3 GB) porque ya están en Docker.
+- Ambos hacen backup `pre-upgrade` antes de actualizar una instalación existente.

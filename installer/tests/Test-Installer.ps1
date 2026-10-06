@@ -591,6 +591,19 @@ Assert-Contains -Haystack $composeRaw -Needle 'container_name: pa-postgres' `
 Assert-Contains -Haystack $composeRaw -Needle '/automation_center' `
   -Name 'la base de datos sigue llamandose automation_center'
 
+# --- Instalador "Full" (todo dentro): carga imágenes en vez de construir -------
+$install = Get-Content (Join-Path $RepoRoot 'installer\install.ps1') -Raw
+Assert-Contains -Haystack $install -Needle 'offline\images.tar.gz' -Name 'install.ps1 reconoce el paquete de imágenes offline'
+Assert-Contains -Haystack $install -Needle '--no-build' -Name 'con imágenes offline no se construye ni se descarga'
+Assert-True -Condition ($install -match 'compose build') -Name 'sin paquete offline se sigue construyendo como antes'
+$issAll = Get-Content (Join-Path $RepoRoot 'installer\windows\PersonalAssistant.iss') -Raw
+Assert-Contains -Haystack $issAll -Needle '#ifdef Offline' -Name 'el .iss tiene la variante Offline'
+Assert-Contains -Haystack $issAll -Needle 'nocompression' -Name 'las imágenes ya comprimidas no se recomprimen'
+Assert-True -Condition (Test-Path (Join-Path $RepoRoot 'build\build-offline.ps1')) -Name 'existe build-offline.ps1'
+$composeImgs = (Get-Content (Join-Path $RepoRoot 'docker-compose.yml') | Select-String '^\s+image:\s*(\S+)' | ForEach-Object { $_.Matches[0].Groups[1].Value }) | Where-Object { $_ -notlike '*$*' } | Sort-Object -Unique
+$offScript = Get-Content (Join-Path $RepoRoot 'build\build-offline.ps1') -Raw
+foreach ($img in $composeImgs) { Assert-Contains -Haystack $offScript -Needle $img -Name "build-offline.ps1 empaqueta $img" }
+
 Write-Host ''
 Write-Host ("RESULTADO: {0} pass, {1} fail" -f $script:Pass, $script:Fail) `
   -ForegroundColor $(if ($script:Fail) { 'Red' } else { 'Green' })

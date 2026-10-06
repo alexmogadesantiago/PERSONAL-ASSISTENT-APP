@@ -319,14 +319,28 @@ $dc = Get-ApComposeArgs $RepoRoot
 
 # --- 6. BUILDING ----------------------------------------------------
 Set-ApState 'building'
-Write-ApStep 'Construyendo imágenes (puede tardar la primera vez)'
-if ((Invoke-ApNative "$dq $dc build" $RepoRoot) -ne 0) { throw 'docker compose build falló' }
-Write-ApOk 'Imágenes construidas'
+# Instalador "Full": las imágenes viajan dentro (offline\images.tar.gz). Se cargan
+# y no se construye ni descarga nada. Sin ese fichero (instalador normal o
+# desarrollo) se construye como siempre.
+$offlineTar = Join-Path $RepoRoot 'offline\images.tar.gz'
+$noBuild = $false
+if (Test-Path $offlineTar) {
+  Write-ApStep 'Cargando las imágenes incluidas en el instalador (sin descargas)'
+  if ((Invoke-ApNative "$dq load -i `"$offlineTar`"" $RepoRoot) -ne 0) { throw 'docker load falló: el paquete de imágenes está dañado' }
+  Remove-Item $offlineTar -Force -ErrorAction SilentlyContinue   # libera ~1,3 GB; ya están en Docker
+  $noBuild = $true
+  Write-ApOk 'Imágenes cargadas'
+} else {
+  Write-ApStep 'Construyendo imágenes (puede tardar la primera vez)'
+  if ((Invoke-ApNative "$dq $dc build" $RepoRoot) -ne 0) { throw 'docker compose build falló' }
+  Write-ApOk 'Imágenes construidas'
+}
+$upFlags = if ($noBuild) { '--no-build' } else { '' }
 
 # --- 7. STARTING SERVICES ----------------------------------------
 Set-ApState 'starting-services'
 Write-ApStep 'Levantando Postgres'
-if ((Invoke-ApNative "$dq $dc up -d postgres" $RepoRoot) -ne 0) { throw 'docker compose up postgres falló' }
+if ((Invoke-ApNative "$dq $dc up -d $upFlags postgres" $RepoRoot) -ne 0) { throw 'docker compose up postgres falló' }
 if (-not (Wait-ContainerHealthy $DockerExe 'pa-postgres' 200)) { throw 'pa-postgres no llegó a healthy.' }
 Write-ApOk 'pa-postgres healthy'
 
@@ -337,7 +351,7 @@ if (Confirm-AcDatabase -DockerExe $DockerExe -Cwd $RepoRoot) { Write-ApOk 'autom
 else { Write-ApOk 'automation_center ya existía (conservada)' }
 
 Write-ApStep 'Levantando el resto de servicios'
-if ((Invoke-ApNative "$dq $dc up -d" $RepoRoot) -ne 0) { throw 'docker compose up falló' }
+if ((Invoke-ApNative "$dq $dc up -d $upFlags" $RepoRoot) -ne 0) { throw 'docker compose up falló' }
 foreach ($c in @('pa-playwright','pa-profile','pa-n8n','pa-backend','pa-frontend')) {
   if (Wait-ContainerHealthy $DockerExe $c 240) { Write-ApOk "$c healthy" }
   else { throw "$c no llegó a healthy. Revisa: docker compose logs $c" }
