@@ -11,7 +11,9 @@ gateway can be pointed at instead.
 """
 from __future__ import annotations
 
+import json
 import time
+from collections.abc import AsyncIterator
 
 import httpx
 
@@ -22,8 +24,10 @@ from app.services.ai.base import (
     Message,
     ModelInfo,
     ResponseFormat,
+    StreamChunk,
+    sse_data,
 )
-from app.services.ai.errors import AIError, AIInvalidResponse
+from app.services.ai.errors import AIError, AIInvalidResponse, AIUnavailable
 from app.services.ai import structured
 
 
@@ -110,6 +114,91 @@ class OpenAICompatibleProvider(AIProvider):
         self._raise_for_status(response)
         latency = round((time.perf_counter() - started) * 1000, 1)
         return self._parse_completion(response, chosen, latency, fmt)
+
+    # ------------------------------------------------------------- stream --
+
+    async def stream(
+        self,
+        messages: list[Message],
+        *,
+        model: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+    ) -> AsyncIterator[StreamChunk]:
+        """``stream: true`` on the same endpoint; the answer arrives as SSE deltas.
+
+        ``stream_options`` is deliberately not sent: engines that do not know a
+        field reject the whole request (see ``enable_guided_json``). Usage is
+        read when the provider volunteers it in the last event.
+        """
+        chosen = (model or self.model or self.default_model).strip()
+        payload: dict = {
+            "model": chosen,
+            "messages": self._prepare_messages(messages, ResponseFormat()),
+            "stream": True,
+        }
+        if temperature is not None:
+            payload["temperature"] = float(temperature)
+        if max_tokens is not None:
+            payload["max_tokens"] = int(max_tokens)
+        headers = {**self._headers(), "accept": "text/event-stream"}
+
+        finish, usage, served_by, got_text = "", {}, chosen, False
+        try:
+            async with self._client() as client:
+                async with client.stream(
+                    "POST", f"{self.base_url}/chat/completions", headers=headers, json=payload
+                ) as response:
+                    if response.status_code >= 400:
+                        await response.aread()
+                        self._raise_for_status(response)
+                    async for data in sse_data(response):
+                        if data.strip() == "[DONE]":
+                            break
+                        try:
+                            event = json.loads(data)
+                        except ValueError as exc:
+                            raise AIInvalidResponse(
+                                "the provider sent an unreadable stream event", provider=self.id
+                            ) from exc
+                        if not isinstance(event, dict):
+                            continue
+                        error = event.get("error")
+                        if error:
+                            # OpenRouter reports an upstream failure inside the stream.
+                            detail = error.get("message") if isinstance(error, dict) else str(error)
+                            raise AIUnavailable(
+                                "the provider failed mid-answer: " + " ".join(str(detail or "").split())[:120],
+                                provider=self.id,
+                            )
+                        served_by = str(event.get("model") or served_by)
+                        if isinstance(event.get("usage"), dict):
+                            usage = event["usage"]
+                        for choice in event.get("choices") or []:
+                            if not isinstance(choice, dict):
+                                continue
+                            text = (choice.get("delta") or {}).get("content")
+                            if isinstance(text, list):  # content parts
+                                text = "".join(p.get("text", "") for p in text if isinstance(p, dict))
+                            if text:
+                                got_text = True
+                                yield StreamChunk(text=str(text))
+                            if choice.get("finish_reason"):
+                                finish = str(choice["finish_reason"])
+        except httpx.HTTPError as exc:
+            raise self._wrap_transport_error(exc) from exc
+        if not got_text:
+            raise AIInvalidResponse("the model returned an empty response", provider=self.id)
+        yield StreamChunk(
+            done=True,
+            model=served_by,
+            finish_reason=finish,
+            usage={
+                "prompt_tokens": usage.get("prompt_tokens"),
+                "completion_tokens": usage.get("completion_tokens"),
+                "total_tokens": usage.get("total_tokens"),
+            },
+        )
 
     # ------------------------------------------------------------ response --
 

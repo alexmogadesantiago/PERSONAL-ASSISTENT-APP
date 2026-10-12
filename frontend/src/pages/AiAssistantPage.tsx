@@ -61,11 +61,16 @@ export function AiAssistantPage() {
     }
   }, [pending, snapshot.contextReady, assistant]);
 
-  // Keep the newest turn in view, including while one is being generated.
+  // Keep the newest turn in view, including while one is being generated and
+  // while a streamed answer grows - unless the reader scrolled up to re-read.
+  const lastLength = turns.length ? turns[turns.length - 1].content.length : 0;
   useEffect(() => {
     const el = scrollRef.current;
-    if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-  }, [turns.length, assistant.generating]);
+    if (!el) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 160;
+    if (assistant.stage === "streaming" && !nearBottom) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: assistant.stage === "streaming" ? "auto" : "smooth" });
+  }, [turns.length, assistant.generating, assistant.stage, lastLength]);
 
   function submit(text?: string) {
     const value = (text ?? draft).trim();
@@ -210,7 +215,7 @@ export function AiAssistantPage() {
                 />
               ))
             )}
-            {assistant.generating && (
+            {assistant.generating && assistant.stage !== "streaming" && (
               <ChatPending stage={assistant.stage === "consulting" ? "consulting" : "generating"} />
             )}
           </div>

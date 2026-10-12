@@ -185,12 +185,19 @@ export function ChatMessage({
   return (
     <div className="animate-in-msg flex gap-3">
       <AssistantMark />
-      <div className="min-w-0 flex-1">
+      {/* aria-busy: a screen reader waits for the finished answer instead of
+          announcing every fragment as it streams in. */}
+      <div className="min-w-0 flex-1" aria-busy={turn.streaming || undefined}>
         {turn.failed ? (
           <p className="text-sm italic text-muted">{turn.content}</p>
+        ) : turn.streaming ? (
+          <div data-testid="stream-caret">
+            <Markdown content={turn.content || " "} className="stream-caret" />
+          </div>
         ) : (
           <Markdown content={turn.content} />
         )}
+        {turn.interrupted && <p className="mt-1.5 text-xs italic text-muted">{turn.interrupted}</p>}
 
         {turn.structured && <StructuredAnswer data={turn.structured} onAction={onAction} />}
 

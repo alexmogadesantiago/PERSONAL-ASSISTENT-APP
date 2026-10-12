@@ -19,10 +19,13 @@ once so it can be pasted into n8n.
 from __future__ import annotations
 
 import datetime as dt
+import json
+import logging
 import uuid
 
 import jwt
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, require_admin
@@ -52,6 +55,7 @@ from app.services.ai.errors import AIAuthError, AIBadRequest, AIError, AINotConf
 from app.services.ai.service import AIService, recent_fallback, reset_caches
 
 router = APIRouter(prefix="/ai", tags=["ai"])
+log = logging.getLogger("ai")
 
 #: header an automation presents instead of a user session
 SERVICE_TOKEN_HEADER = "x-ac-service-token"
@@ -386,14 +390,7 @@ async def generate(
     the panel changes every automation at once with no workflow edit.
     """
     actor = _authorise_generation(db, x_ac_service_token, authorization)
-
-    messages = [m.model_dump() for m in body.messages]
-    if body.system:
-        messages.insert(0, {"role": "system", "content": body.system})
-    if body.prompt:
-        messages.append({"role": "user", "content": body.prompt})
-    if not messages:
-        raise HTTPException(status_code=400, detail="supply `prompt` or `messages`")
+    messages = _messages_of(body)
 
     response_format = body.response_format
     if response_format is None and body.json_schema:
@@ -421,29 +418,135 @@ async def generate(
         _count_ai_error(db)
         raise HTTPException(status_code=502, detail=exc.message)
 
-    if result.used_fallback:
+    _record_generation(
+        db,
+        actor,
+        {
+            "used_fallback": result.used_fallback,
+            "primary_provider": result.primary_provider,
+            "provider": result.response.provider,
+            "primary_error": result.primary_error,
+            "latency_ms": result.response.latency_ms,
+        },
+        _cid(request),
+    )
+    payload = result.as_dict()
+    payload.pop("attempts", None)
+    return GenerateResponse.model_validate(payload)
+
+
+def _messages_of(body: GenerateRequest) -> list[dict]:
+    messages = [m.model_dump() for m in body.messages]
+    if body.system:
+        messages.insert(0, {"role": "system", "content": body.system})
+    if body.prompt:
+        messages.append({"role": "user", "content": body.prompt})
+    if not messages:
+        raise HTTPException(status_code=400, detail="supply `prompt` or `messages`")
+    return messages
+
+
+def _sse(event: dict) -> str:
+    return f"event: {event['type']}\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+
+@router.post("/generate/stream")
+async def generate_stream(
+    body: GenerateRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    x_ac_service_token: str | None = Header(default=None, alias="X-AC-Service-Token"),
+    authorization: str | None = Header(default=None),
+) -> StreamingResponse:
+    """The same door as ``/generate``, answered as server-sent events.
+
+    ``event: start`` names who is answering, ``event: delta`` carries each piece
+    of text, ``event: done`` closes with latency and usage. A failure before the
+    first token is an ordinary HTTP error (same codes as ``/generate``), so a
+    caller can fall back cleanly; one after it arrives as ``event: error``.
+    Plain text only: structured output needs the whole answer to validate, so
+    it stays on ``/generate``.
+    """
+    actor = _authorise_generation(db, x_ac_service_token, authorization)
+    if body.response_format or body.json_schema:
+        raise HTTPException(
+            status_code=400,
+            detail="streaming returns plain text; use /api/ai/generate for structured output",
+        )
+    messages = _messages_of(body)
+    events = AIService.from_db(db).stream(
+        messages,
+        model=(body.model or "").strip() or None,
+        temperature=body.temperature,
+        max_tokens=body.max_tokens,
+    )
+    # Pull the first event before answering: everything up to the first token
+    # (configuration, credentials, the fallback) then maps onto a status code.
+    try:
+        first = await events.__anext__()
+    except StopAsyncIteration:
+        raise HTTPException(status_code=502, detail="the provider returned nothing")
+    except AINotConfigured as exc:
+        raise HTTPException(status_code=503, detail=exc.message)
+    except AIBadRequest as exc:
+        raise HTTPException(status_code=400, detail=exc.message)
+    except AIError as exc:
+        _count_ai_error(db)
+        raise HTTPException(status_code=502, detail=exc.message)
+    correlation_id = _cid(request)
+
+    async def body_iter():
+        done: dict | None = None
+        failed = False
+        try:
+            yield _sse(first)
+            async for event in events:
+                if event["type"] == "done":
+                    done = event
+                yield _sse(event)
+        except AIError as exc:
+            failed = True
+            yield _sse({"type": "error", "message": exc.message})
+        finally:
+            await events.aclose()
+            # The request's session was released when the endpoint returned;
+            # a SQLAlchemy session reconnects on use, so it is reused here.
+            try:
+                if failed:
+                    _count_ai_error(db)
+                elif done is not None:
+                    _record_generation(db, actor, done, correlation_id)
+            except Exception:  # noqa: BLE001 - bookkeeping never breaks an answer already sent
+                log.warning("could not record a streamed generation", exc_info=True)
+            finally:
+                db.close()
+
+    return StreamingResponse(
+        body_iter(),
+        media_type="text/event-stream",
+        headers={"cache-control": "no-cache", "x-accel-buffering": "no"},
+    )
+
+
+def _record_generation(db: Session, actor: str, done: dict, correlation_id: str | None) -> None:
+    if done.get("used_fallback"):
         audit.record(
             db,
             type="ai.fallback",
-            message=(
-                f"AI fallback used: {result.primary_provider} -> {result.response.provider}"
-            ),
+            message=f"AI fallback used: {done.get('primary_provider')} -> {done.get('provider')}",
             severity=EventSeverity.warning,
-            correlation_id=_cid(request),
+            correlation_id=correlation_id,
             meta={
                 "actor": actor,
-                "primary": result.primary_provider,
-                "fallback": result.response.provider,
-                "reason": result.primary_error,
+                "primary": done.get("primary_provider"),
+                "fallback": done.get("provider"),
+                "reason": done.get("primary_error"),
             },
         )
     from app.services import usage
 
     usage.bump(db, "ai_requests")
-    usage.bump(db, "ai_latency_ms", int(result.response.latency_ms or 0))
-    payload = result.as_dict()
-    payload.pop("attempts", None)
-    return GenerateResponse.model_validate(payload)
+    usage.bump(db, "ai_latency_ms", int(done.get("latency_ms") or 0))
 
 
 def _count_ai_error(db) -> None:

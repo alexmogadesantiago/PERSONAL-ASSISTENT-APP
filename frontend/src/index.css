@@ -230,6 +230,22 @@ body {
   from { background-position: 100% 0; }
   to { background-position: -100% 0; }
 }
+/* The caret of an answer that is still arriving, drawn at the end of its last
+   line rather than on a line of its own. */
+.stream-caret > :last-child::after {
+  content: "";
+  display: inline-block;
+  width: 0.45em;
+  height: 1.05em;
+  margin-left: 3px;
+  vertical-align: text-bottom;
+  border-radius: 2px;
+  background: rgb(var(--c-brand) / 0.7);
+  animation: pa-caret 1s steps(2, start) infinite;
+}
+@keyframes pa-caret {
+  to { visibility: hidden; }
+}
 @keyframes pa-flow {
   from { background-position: 0 0; }
   to { background-position: -200% 0; }

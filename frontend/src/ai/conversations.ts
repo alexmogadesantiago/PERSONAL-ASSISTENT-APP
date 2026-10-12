@@ -24,6 +24,10 @@ export interface ChatTurn {
   action?: TurnAction;
   /** True when the turn records a failure rather than a model reply. */
   failed?: boolean;
+  /** True while the answer is still arriving. */
+  streaming?: boolean;
+  /** Why an answer that had started stopped early (Stop pressed, provider failed). */
+  interrupted?: string;
   meta?: { provider: string; model: string; latencyMs: number; usedFallback: boolean };
   /** Cards the assistant attached (email / calendar / deadlines / problems) and its buttons. */
   structured?: Pick<AskResult, "title" | "sections" | "actions" | "notes">;
@@ -62,7 +66,16 @@ export function loadConversations(): Conversation[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter(isConversation).slice(0, MAX_CONVERSATIONS);
+    return parsed
+      .filter(isConversation)
+      .slice(0, MAX_CONVERSATIONS)
+      .map((c) => ({
+        ...c,
+        // An answer cannot still be arriving after a reload.
+        turns: c.turns.map((t) =>
+          t.streaming ? { ...t, streaming: false, interrupted: t.interrupted ?? "The page closed before the answer finished." } : t,
+        ),
+      }));
   } catch {
     return [];
   }

@@ -143,11 +143,15 @@ async function parseBody(res: Response): Promise<unknown> {
   }
 }
 
-export async function apiRequest<T>(path: string, opts: RequestOptions = {}): Promise<T> {
+/**
+ * Send a request with the session attached, renewing the token once on 401.
+ * Returns the raw response; callers decide how to read the body.
+ */
+async function sendAuthed(path: string, opts: RequestOptions, accept: string): Promise<Response> {
   const { method = "GET", body, auth = true, signal, query } = opts;
 
   const send = async (): Promise<Response> => {
-    const headers: Record<string, string> = { accept: "application/json" };
+    const headers: Record<string, string> = { accept };
     if (body !== undefined) headers["content-type"] = "application/json";
     const token = getSession()?.access_token;
     if (auth && token) headers.authorization = `Bearer ${token}`;
@@ -173,6 +177,7 @@ export async function apiRequest<T>(path: string, opts: RequestOptions = {}): Pr
       try {
         res = await send();
       } catch (err) {
+        if ((err as Error).name === "AbortError") throw err;
         throw new ApiError(0, "Cannot reach the Automation Center backend.", err, "network");
       }
     } else if (outcome === "invalid") {
@@ -188,17 +193,33 @@ export async function apiRequest<T>(path: string, opts: RequestOptions = {}): Pr
       );
     }
   }
+  return res;
+}
+
+async function failure(res: Response): Promise<ApiError> {
+  const payload = await parseBody(res);
+  const { message, code } = extractMessage(payload, `Request failed (${res.status})`);
+  return new ApiError(res.status, message, payload, code);
+}
+
+export async function apiRequest<T>(path: string, opts: RequestOptions = {}): Promise<T> {
+  const res = await sendAuthed(path, opts, "application/json");
 
   if (res.status === 204 || res.status === 205) return undefined as T;
 
-  const payload = await parseBody(res);
+  if (!res.ok) throw await failure(res);
+  return (await parseBody(res)) as T;
+}
 
-  if (!res.ok) {
-    const { message, code } = extractMessage(payload, `Request failed (${res.status})`);
-    throw new ApiError(res.status, message, payload, code);
-  }
-
-  return payload as T;
+/**
+ * POST and hand back the open response for a server-sent event stream. Errors
+ * before the stream starts (auth, configuration) throw like any other call.
+ */
+export async function apiStream(path: string, body: unknown, signal?: AbortSignal): Promise<Response> {
+  const res = await sendAuthed(path, { method: "POST", body, signal }, "text/event-stream");
+  if (!res.ok) throw await failure(res);
+  if (!res.body) throw new ApiError(502, "The backend sent no stream.", null, "no_stream");
+  return res;
 }
 
 export const api = {

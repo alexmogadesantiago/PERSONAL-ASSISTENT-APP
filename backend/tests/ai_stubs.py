@@ -131,3 +131,33 @@ def connect_error(request: httpx.Request) -> httpx.Response:
 NIM = "integrate.api.nvidia.com"
 OPENROUTER = "openrouter.ai"
 GEMINI = "generativelanguage.googleapis.com"
+
+
+# --------------------------------------------------------------- streams ----
+
+
+def sse(*events, done: bool = True) -> bytes:
+    """Encode server-sent events; a `str` event is sent verbatim (comments)."""
+    out = []
+    for event in events:
+        out.append(event if isinstance(event, str) else "data: " + json.dumps(event) + "\n\n")
+    if done:
+        out.append("data: [DONE]\n\n")
+    return "".join(out).encode()
+
+
+def openai_stream(*pieces: str, model: str = "test-model", usage: bool = True) -> httpx.Response:
+    events = [{"model": model, "choices": [{"index": 0, "delta": {"content": p}}]} for p in pieces]
+    last: dict = {"model": model, "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}
+    if usage:
+        last["usage"] = {"prompt_tokens": 7, "completion_tokens": len(pieces), "total_tokens": 7 + len(pieces)}
+    events.append(last)
+    return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=sse(*events))
+
+
+def gemini_stream(*pieces: str) -> httpx.Response:
+    events = [{"candidates": [{"content": {"parts": [{"text": p}]}}]} for p in pieces]
+    events.append({"candidates": [{"content": {"parts": []}, "finishReason": "STOP"}],
+                   "usageMetadata": {"promptTokenCount": 4, "candidatesTokenCount": len(pieces),
+                                     "totalTokenCount": 4 + len(pieces)}})
+    return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=sse(*events, done=False))

@@ -1,4 +1,5 @@
-import { api } from "./client";
+import { api, apiStream, ApiError } from "./client";
+import { readEventStream } from "./sse";
 import type {
   AiConfig,
   AiConfigUpdate,
@@ -126,6 +127,16 @@ export const servicesApi = {
  * exception: the freshly minted token has to be shown once so it can be pasted
  * into n8n.
  */
+/** A streamed answer that failed part-way; `partial` is what had arrived. */
+export class AiStreamError extends ApiError {
+  partial: string;
+  constructor(message: string, partial: string) {
+    super(502, message, null, "stream_interrupted");
+    this.name = "AiStreamError";
+    this.partial = partial;
+  }
+}
+
 export const aiApi = {
   providers: () => api.get<{ data: AiProviderInfo[] }>("/api/ai/providers"),
   config: () => api.get<AiConfig>("/api/ai/config"),
@@ -144,6 +155,53 @@ export const aiApi = {
    */
   generate: (input: AiGenerateRequest, signal?: AbortSignal) =>
     api.post<AiGenerateResponse>("/api/ai/generate", input, signal),
+  /**
+   * The same request, answered token by token (`/api/ai/generate/stream`).
+   * `onText` receives the whole text so far after every delta. Resolves with
+   * the same shape as `generate`; a failure after the first token rejects
+   * with an `AiStreamError` that still carries what had arrived.
+   */
+  generateStream: async (
+    input: AiGenerateRequest,
+    { signal, onText }: { signal?: AbortSignal; onText?: (text: string) => void } = {},
+  ): Promise<AiGenerateResponse> => {
+    const res = await apiStream("/api/ai/generate/stream", input, signal);
+    // Something in between (a proxy, an older build) answered in one piece.
+    if (!(res.headers.get("content-type") ?? "").includes("text/event-stream")) {
+      const whole = (await res.json()) as AiGenerateResponse;
+      if (whole.text) onText?.(whole.text);
+      return whole;
+    }
+    let text = "";
+    for await (const message of readEventStream(res.body as ReadableStream<Uint8Array>)) {
+      let data: Record<string, unknown>;
+      try {
+        data = JSON.parse(message.data) as Record<string, unknown>;
+      } catch {
+        continue;
+      }
+      if (message.event === "delta") {
+        text += String(data.text ?? "");
+        onText?.(text);
+      } else if (message.event === "error") {
+        throw new AiStreamError(String(data.message ?? "The provider failed while answering."), text);
+      } else if (message.event === "done") {
+        return {
+          text,
+          data: null,
+          provider: String(data.provider ?? ""),
+          model: String(data.model ?? ""),
+          latency_ms: Number(data.latency_ms ?? 0),
+          finish_reason: String(data.finish_reason ?? ""),
+          usage: (data.usage as Record<string, unknown>) ?? {},
+          used_fallback: Boolean(data.used_fallback),
+          primary_provider: String(data.primary_provider ?? ""),
+          primary_error: String(data.primary_error ?? ""),
+        };
+      }
+    }
+    throw new AiStreamError("The answer was cut off before it finished.", text);
+  },
   serviceToken: {
     status: () => api.get<AiServiceTokenStatus>("/api/ai/service-token"),
     rotate: () => api.post<AiServiceTokenCreated>("/api/ai/service-token"),

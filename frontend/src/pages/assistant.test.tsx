@@ -224,3 +224,110 @@ describe("AiAssistantPage", () => {
     expect(await screen.findByText(/No AI provider is configured yet/)).toBeInTheDocument();
   });
 });
+
+/* ------------------------------------------------------------ streaming --- */
+
+/** A stream the test feeds event by event; aborting the request errors it like a browser does. */
+function controlledStream() {
+  const enc = new TextEncoder();
+  let ctrl!: ReadableStreamDefaultController<Uint8Array>;
+  const stream = new ReadableStream<Uint8Array>({ start: (c) => void (ctrl = c) });
+  return {
+    stream,
+    send: (event: string, data: unknown) => ctrl.enqueue(enc.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)),
+    close: () => ctrl.close(),
+    abortWith: (signal?: AbortSignal | null) =>
+      signal?.addEventListener("abort", () => ctrl.error(new DOMException("The user aborted a request.", "AbortError"))),
+  };
+}
+
+function withStreamingGenerate(routes: ReturnType<typeof baseRoutes>) {
+  const live = controlledStream();
+  const { stub } = installFetchStub(routes);
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/api/ai/generate/stream")) {
+        live.abortWith(init?.signal);
+        return new Response(live.stream, { status: 200, headers: { "content-type": "text/event-stream" } });
+      }
+      return stub(input, init);
+    }),
+  );
+  return live;
+}
+
+const DONE = { provider: "nvidia_nim", model: "llama", latency_ms: 99, finish_reason: "stop", usage: {}, used_fallback: false, primary_provider: "nvidia_nim", primary_error: "" };
+
+async function ask(text: string) {
+  renderWithProviders(<AiAssistantPage />);
+  await userEvent.type(await screen.findByLabelText("Message the assistant"), text);
+  await userEvent.click(screen.getByRole("button", { name: "Send message" }));
+}
+
+describe("AiAssistantPage streaming", () => {
+  it("shows the answer as it arrives and settles it when it is done", async () => {
+    const live = withStreamingGenerate(baseRoutes({ status: 500, body: {} }));
+    await ask("hola");
+
+    live.send("start", { provider: "nvidia_nim", model: "llama", used_fallback: false });
+    live.send("delta", { text: "Hola, " });
+    expect(await screen.findByText(/Hola,/)).toBeInTheDocument();
+    expect(screen.getByTestId("stream-caret")).toBeInTheDocument();
+    expect(screen.queryByText("Thinking…")).not.toBeInTheDocument();
+
+    live.send("delta", { text: "todo **bien**." });
+    live.send("done", DONE);
+    live.close();
+    expect(await screen.findByText(/nvidia_nim · llama · 99 ms/)).toBeInTheDocument();
+    expect(screen.getByText("bien").tagName).toBe("STRONG");
+    expect(screen.queryByTestId("stream-caret")).not.toBeInTheDocument();
+  });
+
+  it("Stop keeps what had arrived instead of throwing it away", async () => {
+    const live = withStreamingGenerate(baseRoutes({ status: 500, body: {} }));
+    await ask("explícame algo largo");
+    live.send("delta", { text: "Primera parte de la respuesta" });
+    expect(await screen.findByText(/Primera parte/)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Stop generating" }));
+    expect(await screen.findByText("Stopped.")).toBeInTheDocument();
+    expect(screen.getByText(/Primera parte de la respuesta/)).toBeInTheDocument();
+    expect(screen.queryByTestId("stream-caret")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send message" })).toBeInTheDocument();
+  });
+
+  it("a provider failure part-way keeps the text and says what happened", async () => {
+    const live = withStreamingGenerate(baseRoutes({ status: 500, body: {} }));
+    await ask("hola");
+    live.send("delta", { text: "Empiezo a contestar" });
+    live.send("error", { message: "provider error (HTTP 503)" });
+    live.close();
+    expect(await screen.findByText(/The answer was interrupted: provider error \(HTTP 503\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Empiezo a contestar/)).toBeInTheDocument();
+  });
+
+  it("never flashes a half-written action directive, and offers it once complete", async () => {
+    const live = withStreamingGenerate(baseRoutes({ status: 500, body: {} }));
+    await ask("Run news automation");
+    live.send("delta", { text: "I can trigger it now.\n[[action:run_wor" });
+    expect(await screen.findByText(/I can trigger it now/)).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("[[action");
+
+    live.send("delta", { text: 'kflow id="w1" name="Noticias"]]' });
+    live.send("done", DONE);
+    live.close();
+    expect(await screen.findByText("AI wants to run")).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("[[action");
+  });
+
+  it("falls back to a one-shot answer on a backend without the streaming route", async () => {
+    installFetchStub({
+      ...baseRoutes({ body: { text: "Respuesta de una vez.", ...DONE } }),
+      "POST /api/ai/generate/stream": { status: 404, body: { detail: "Not Found" } },
+    });
+    await ask("hola");
+    expect(await screen.findByText("Respuesta de una vez.")).toBeInTheDocument();
+  });
+});

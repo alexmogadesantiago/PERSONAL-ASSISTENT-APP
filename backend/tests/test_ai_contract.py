@@ -33,6 +33,8 @@ PANEL_ENDPOINTS: tuple[tuple[str, str], ...] = (
     ("POST", "/api/ai/service-token"),
     ("DELETE", "/api/ai/service-token"),
     ("POST", "/api/ai/generate"),
+    # the chat's streamed answers (`aiApi.generateStream`)
+    ("POST", "/api/ai/generate/stream"),
 )
 
 

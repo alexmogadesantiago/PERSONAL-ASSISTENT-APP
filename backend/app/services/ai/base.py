@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import abc
 import time
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 
 import httpx
@@ -125,6 +126,41 @@ class AIResponse:
         }
 
 
+@dataclass
+class StreamChunk:
+    """One piece of a streamed completion: a text delta, or (``done``) the
+    closing metadata. Same vocabulary as :class:`AIResponse`."""
+
+    text: str = ""
+    done: bool = False
+    model: str = ""
+    finish_reason: str = ""
+    usage: dict = field(default_factory=dict)
+
+
+async def sse_data(response: httpx.Response) -> AsyncIterator[str]:
+    """The ``data:`` payloads of a server-sent event stream.
+
+    Comment lines (``: keep-alive``, OpenRouter's ``: OPENROUTER PROCESSING``)
+    and other fields are skipped; a multi-line ``data`` is joined as the spec
+    says.
+    """
+    buffer: list[str] = []
+    async for line in response.aiter_lines():
+        if not line:
+            if buffer:
+                yield "\n".join(buffer)
+                buffer = []
+            continue
+        if line.startswith(":"):
+            continue
+        if line.startswith("data:"):
+            value = line[5:]
+            buffer.append(value[1:] if value.startswith(" ") else value)
+    if buffer:
+        yield "\n".join(buffer)
+
+
 class AIProvider(abc.ABC):
     """One AI backend. Subclasses differ only in wire format."""
 
@@ -165,6 +201,31 @@ class AIProvider(abc.ABC):
     @abc.abstractmethod
     async def list_models(self) -> list[ModelInfo]:
         """Models this endpoint currently offers. Raises :class:`AIError`."""
+
+    async def stream(
+        self,
+        messages: list[Message],
+        *,
+        model: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+    ) -> AsyncIterator[StreamChunk]:
+        """Stream a plain-text completion: text deltas, then one ``done`` chunk.
+
+        This default serves a provider without a streaming dialect: the same
+        answer :meth:`generate` returns, delivered as a single delta. Slower to
+        appear, never different.
+        """
+        response = await self.generate(
+            messages, model=model, temperature=temperature, max_tokens=max_tokens
+        )
+        yield StreamChunk(text=response.text)
+        yield StreamChunk(
+            done=True,
+            model=response.model,
+            finish_reason=response.finish_reason,
+            usage=response.usage,
+        )
 
     # ------------------------------------------------------------- helpers --
 
@@ -264,5 +325,7 @@ __all__ = [
     "Message",
     "ModelInfo",
     "ResponseFormat",
+    "StreamChunk",
     "TEXT",
+    "sse_data",
 ]

@@ -20,6 +20,8 @@ import datetime as dt
 import hashlib
 import logging
 import time
+from collections.abc import AsyncIterator
+from contextlib import aclosing
 from dataclasses import dataclass, field
 
 from sqlalchemy.orm import Session
@@ -262,6 +264,107 @@ class AIService:
             primary_error=primary_error,
             attempts=attempts,
         )
+
+    # ----------------------------------------------------------- streaming --
+
+    async def stream(
+        self,
+        messages: list[Message] | list[dict],
+        *,
+        model: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+    ) -> AsyncIterator[dict]:
+        """Stream a plain-text completion as events, with the same fallback policy.
+
+        Events: ``start`` (provider, model, used_fallback) before the first
+        ``delta`` (text), then one ``done`` (provider, model, latency_ms,
+        finish_reason, usage, used_fallback, primary_error).
+
+        The fallback is only possible *before* the first token: once text has
+        reached the reader, switching providers would repeat or contradict it,
+        so a failure after that point is raised to the caller as is.
+        """
+        turns = [Message.coerce(m) for m in messages]
+        if not turns or not any(t.content.strip() for t in turns):
+            raise AINotConfigured("no prompt was supplied")
+        cfg = self.config
+        if not cfg.configured:
+            raise AINotConfigured(
+                "no AI provider is configured: " + (", ".join(cfg.missing) or "none available")
+            )
+        temperature = cfg.temperature if temperature is None else temperature
+        max_tokens = cfg.max_tokens if max_tokens is None else max_tokens
+
+        plan = [(cfg.provider, model or cfg.model)]
+        if cfg.effective_fallback:
+            plan.append((cfg.effective_fallback, cfg.fallback_model))
+        primary_error = ""
+        started = time.perf_counter()
+        for index, (provider_id, provider_model) in enumerate(plan):
+            client = self._client(provider_id, provider_model)
+            if client is None:
+                raise AINotConfigured(f"{provider_id} has no credential")
+            emitted = False
+            try:
+                # aclosing: when the reader stops (Stop, a closed tab) the
+                # provider's HTTP stream is closed at once, so the model stops
+                # generating instead of running on until garbage collection.
+                async with aclosing(
+                    client.stream(
+                        turns,
+                        model=provider_model or None,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                    )
+                ) as chunks:
+                    async for chunk in chunks:
+                        if chunk.done:
+                            yield {
+                                "type": "done",
+                                "provider": provider_id,
+                                "model": chunk.model or provider_model or client.model,
+                                "latency_ms": round((time.perf_counter() - started) * 1000, 1),
+                                "finish_reason": chunk.finish_reason,
+                                "usage": chunk.usage,
+                                "used_fallback": index > 0,
+                                "primary_provider": cfg.provider,
+                                "primary_error": primary_error,
+                            }
+                            return
+                        if not emitted:
+                            emitted = True
+                            yield {
+                                "type": "start",
+                                "provider": provider_id,
+                                "model": provider_model or client.model,
+                                "used_fallback": index > 0,
+                            }
+                        yield {"type": "delta", "text": chunk.text}
+            except AIError as exc:
+                if emitted:
+                    raise
+                last = index == len(plan) - 1
+                if index == 0 and (not exc.retryable or last):
+                    log.warning(
+                        "ai stream failed on %s (retryable=%s): %s",
+                        provider_id,
+                        exc.retryable,
+                        exc.message,
+                        extra={"operation": "ai.stream", "status": "failed"},
+                    )
+                    raise
+                if index > 0:
+                    exc.message = f"{exc.message} (primary {cfg.provider} also failed: {primary_error})"
+                    raise
+                primary_error = exc.message
+                log.warning(
+                    "ai primary %s failed before streaming, trying fallback %s: %s",
+                    provider_id,
+                    plan[1][0],
+                    exc.message,
+                    extra={"operation": "ai.fallback", "status": "degraded"},
+                )
 
     # -------------------------------------------------------------- models --
 

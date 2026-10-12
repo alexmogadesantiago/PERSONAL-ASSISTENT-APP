@@ -118,6 +118,15 @@ export interface ParsedReply {
   action: ActionProposal | null;
 }
 
+/**
+ * What to show of a reply that is still arriving: finished directives are
+ * removed like in `parseReply`, and a directive cut off mid-way ("[[act…")
+ * is held back instead of flashing as raw text.
+ */
+export function visibleWhileStreaming(reply: string): string {
+  return reply.replace(ACTION_PATTERN, "").replace(/\[(\[[^\]]*)?$/, "").replace(/\n{3,}/g, "\n\n").trimStart();
+}
+
 /** Split an assistant reply into prose and (at most) one action proposal. */
 export function parseReply(reply: string): ParsedReply {
   const matches = [...reply.matchAll(ACTION_PATTERN)];

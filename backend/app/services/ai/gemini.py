@@ -12,12 +12,22 @@ is a separate ``systemInstruction``, and structured output is requested through
 """
 from __future__ import annotations
 
+import json
 import time
+from collections.abc import AsyncIterator
 
 import httpx
 
-from app.services.ai.base import AIProvider, AIResponse, Message, ModelInfo, ResponseFormat
-from app.services.ai.errors import AIInvalidResponse
+from app.services.ai.base import (
+    AIProvider,
+    AIResponse,
+    Message,
+    ModelInfo,
+    ResponseFormat,
+    StreamChunk,
+    sse_data,
+)
+from app.services.ai.errors import AIInvalidResponse, AIUnavailable
 from app.services.ai import structured
 
 
@@ -91,6 +101,92 @@ class GeminiProvider(AIProvider):
         self._raise_for_status(response)
         latency = round((time.perf_counter() - started) * 1000, 1)
         return self._parse_completion(response, chosen, latency, fmt)
+
+    # ------------------------------------------------------------- stream --
+
+    async def stream(
+        self,
+        messages: list[Message],
+        *,
+        model: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+    ) -> AsyncIterator[StreamChunk]:
+        """``:streamGenerateContent?alt=sse`` - each event is a partial
+        GenerateContentResponse carrying the next piece of text."""
+        chosen = (model or self.model or self.default_model).strip()
+        system_text, contents = self._split_turns(messages)
+        if not contents:
+            contents = [{"role": "user", "parts": [{"text": system_text or ""}]}]
+            system_text = ""
+        payload: dict = {"contents": contents}
+        if system_text:
+            payload["systemInstruction"] = {"parts": [{"text": system_text}]}
+        generation_config: dict = {}
+        if temperature is not None:
+            generation_config["temperature"] = float(temperature)
+        if max_tokens is not None:
+            generation_config["maxOutputTokens"] = int(max_tokens)
+        if generation_config:
+            payload["generationConfig"] = generation_config
+        url = f"{self.base_url}/v1beta/models/{chosen}:streamGenerateContent"
+        headers = {**self._headers(), "accept": "text/event-stream"}
+
+        finish, usage, got_text, blocked = "", {}, False, ""
+        try:
+            async with self._client() as client:
+                async with client.stream(
+                    "POST", url, params={"alt": "sse"}, headers=headers, json=payload
+                ) as response:
+                    if response.status_code >= 400:
+                        await response.aread()
+                        self._raise_for_status(response)
+                    async for data in sse_data(response):
+                        try:
+                            event = json.loads(data)
+                        except ValueError as exc:
+                            raise AIInvalidResponse(
+                                "the provider sent an unreadable stream event", provider=self.id
+                            ) from exc
+                        if not isinstance(event, dict):
+                            continue
+                        if event.get("error"):
+                            error = event["error"]
+                            detail = error.get("message") if isinstance(error, dict) else str(error)
+                            raise AIUnavailable(
+                                "the provider failed mid-answer: " + " ".join(str(detail or "").split())[:120],
+                                provider=self.id,
+                            )
+                        blocked = blocked or str((event.get("promptFeedback") or {}).get("blockReason") or "")
+                        if isinstance(event.get("usageMetadata"), dict):
+                            usage = event["usageMetadata"]
+                        for candidate in event.get("candidates") or []:
+                            if not isinstance(candidate, dict):
+                                continue
+                            parts = (candidate.get("content") or {}).get("parts") or []
+                            text = "".join(str(p.get("text") or "") for p in parts if isinstance(p, dict))
+                            if text:
+                                got_text = True
+                                yield StreamChunk(text=text)
+                            if candidate.get("finishReason"):
+                                finish = str(candidate["finishReason"])
+        except httpx.HTTPError as exc:
+            raise self._wrap_transport_error(exc) from exc
+        if not got_text:
+            raise AIInvalidResponse(
+                f"the model returned an empty response{f' (blocked: {blocked})' if blocked else ''}",
+                provider=self.id,
+            )
+        yield StreamChunk(
+            done=True,
+            model=chosen,
+            finish_reason=finish,
+            usage={
+                "prompt_tokens": usage.get("promptTokenCount"),
+                "completion_tokens": usage.get("candidatesTokenCount"),
+                "total_tokens": usage.get("totalTokenCount"),
+            },
+        )
 
     # ------------------------------------------------------------ response --
 
