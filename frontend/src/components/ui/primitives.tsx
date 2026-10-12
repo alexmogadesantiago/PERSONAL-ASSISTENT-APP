@@ -211,8 +211,9 @@ export function StatusDot({
 
 /* ------------------------------ Skeleton ----------------------------- */
 
+/** A `span` drawn as a block: valid inside a paragraph as well as a `div`. */
 export function Skeleton({ className }: { className?: string }) {
-  return <div className={cn("animate-shimmer rounded-lg", className)} />;
+  return <span aria-hidden="true" className={cn("block animate-shimmer rounded-lg", className)} />;
 }
 
 export function SkeletonRows({ rows = 5, className }: { rows?: number; className?: string }) {
