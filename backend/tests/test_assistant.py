@@ -120,3 +120,94 @@ def test_bot_answers_only_the_linked_chat(client, rec, ai, session_factory):
     with session_factory() as db:
         row = db.scalar(select(Credential).where(Credential.provider == "telegram"))
         assert row.meta["update_offset"] == 12, "updates are acknowledged, never answered twice"
+
+
+# ------------------------------------------------- bot loop: at-most-once ----
+
+def _offset(session_factory):
+    from app.models import Credential
+
+    with session_factory() as db:
+        return db.scalar(select(Credential).where(Credential.provider == "telegram")).meta.get("update_offset")
+
+
+def test_a_crashing_update_is_answered_once_and_never_replayed(client, rec, ai, session_factory, monkeypatch):
+    """A poison message used to abort the pass before the offset was stored, so
+    every later pass replayed it - and every message after it - forever."""
+    import anyio
+
+    register(client)
+    _connect(session_factory)
+    real = assistant.bot_reply
+
+    async def flaky(db, user_id, text):
+        if text == "/boom":
+            raise RuntimeError("unexpected failure inside a skill")
+        return await real(db, user_id, text)
+
+    monkeypatch.setattr(assistant, "bot_reply", flaky)
+    rec.updates = [
+        {"update_id": 30, "message": {"chat": {"id": 777}, "text": "/boom"}},
+        {"update_id": 31, "message": {"chat": {"id": 777}, "text": "/help"}},
+    ]
+    with session_factory() as db:
+        assert anyio.run(assistant.poll_bot_once, db) == 2
+    assert rec.telegram_sent[0]["text"] == assistant.BOT_FAILURE
+    assert "/briefing" in rec.telegram_sent[1]["text"], "the message after the poison one is still answered"
+    assert _offset(session_factory) == 31
+
+    # Telegram re-delivers anything not yet confirmed; nothing is answered twice.
+    with session_factory() as db:
+        assert anyio.run(assistant.poll_bot_once, db) == 0
+    assert len(rec.telegram_sent) == 2
+
+
+def test_saving_the_offset_keeps_a_health_verdict_from_the_same_pass(client, rec, ai, session_factory):
+    """Storing the offset must not write back the health the pass started with."""
+    import anyio
+
+    from app.models import Credential
+    from app.services.integrations import connections as conns
+
+    register(client)
+    _connect(session_factory)
+
+    def blocked(req):
+        if str(req.url).endswith("/sendMessage"):
+            return httpx.Response(403, json={"ok": False, "error_code": 403, "description": "Forbidden: bot was blocked"})
+        return rec(req)
+
+    from app.services.integrations import http as int_http
+
+    int_http.set_transport(httpx.MockTransport(blocked))
+    rec.updates = [{"update_id": 40, "message": {"chat": {"id": 777}, "text": "/help"}}]
+    with session_factory() as db:
+        assert anyio.run(assistant.poll_bot_once, db) == 0
+    with session_factory() as db:
+        row = db.scalar(select(Credential).where(Credential.provider == "telegram"))
+        assert row.meta["update_offset"] == 40
+        assert row.meta["health"] == conns.DEGRADED, "the 403 recorded while answering survives"
+
+
+def test_send_reply_reports_a_gmail_failure_instead_of_crashing(client, rec, ai, session_factory):
+    import anyio
+
+    register(client)
+    uid = _connect(session_factory)
+
+    def gmail_down(req):
+        if "format=metadata" in str(req.url):
+            return httpx.Response(503, json={"error": {"message": "backend error"}})
+        return rec(req)
+
+    from app.services.integrations import http as int_http
+
+    int_http.set_transport(httpx.MockTransport(gmail_down))
+
+    async def go():
+        with session_factory() as db:
+            return await assistant.send_reply(db, uid, "m1", "hola")
+
+    with pytest.raises(assistant.AssistantError):
+        anyio.run(go)
+    assert rec.sent_mail == []

@@ -161,6 +161,17 @@ def set_health(
     db.commit()
 
 
+def set_meta(db: Session, row: Credential, **fields) -> None:
+    """Merge bookkeeping fields (e.g. Telegram's update offset) into the row's
+    current meta and commit. Unlike `set_health`, it never touches the health
+    verdict, so it cannot overwrite one recorded a moment earlier."""
+    meta = dict(row.meta or {})
+    meta.update(fields)
+    row.meta = meta
+    flag_modified(row, "meta")
+    db.commit()
+
+
 def touch_used(db: Session, row: Credential) -> None:
     row.last_used_at = now()
     meta = dict(row.meta or {})

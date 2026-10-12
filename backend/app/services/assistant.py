@@ -232,9 +232,13 @@ async def send_reply(db: Session, user_id: uuid.UUID, message_id: str, body: str
     if m.get("demo"):
         return {"sent": False, "demo": True, "message": "Demo mode: nothing was sent."}
     ctx = _ctx(db, user_id)
-    raw_msg = await actions._api(ctx, "google", "gmail", "GET", f"{actions.GMAIL}/messages/{message_id}",
-                                 params={"format": "metadata", "metadataHeaders": "Message-ID"})
-    headers = {h["name"].lower(): h["value"] for h in (raw_msg.get("payload") or {}).get("headers", [])}
+    try:
+        raw_msg = await actions._api(ctx, "google", "gmail", "GET", f"{actions.GMAIL}/messages/{message_id}",
+                                     params={"format": "metadata", "metadataHeaders": "Message-ID"})
+    except actions.ActionError as exc:
+        raise _wrap(exc)
+    headers = {str(h.get("name", "")).lower(): h.get("value", "")
+               for h in (raw_msg.get("payload") or {}).get("headers", []) if isinstance(h, dict)}
     msg = EmailMessage()
     msg["To"] = m["from"]
     msg["Subject"] = m["subject"] if m["subject"].lower().startswith("re:") else f"Re: {m['subject']}"
@@ -858,8 +862,32 @@ async def _answer_callback(token: str, callback_id: str) -> None:
         pass
 
 
+BOT_FAILURE = "⚠️ No he podido procesar eso ahora mismo. Inténtalo de nuevo en un momento."
+
+
+async def _handle_update(db: Session, row, token: str, chat_id, upd: dict) -> str | tuple[str, dict] | None:
+    """The reply to one Telegram update, or None when it must be ignored."""
+    cb = upd.get("callback_query")
+    if cb:
+        if ((cb.get("message") or {}).get("chat") or {}).get("id") != chat_id:
+            return None  # buttons only work in the linked chat
+        await _answer_callback(token, str(cb.get("id")))
+        return await bot_callback(db, row.user_id, str(cb.get("data") or ""))
+    msg = upd.get("message") or {}
+    if (msg.get("chat") or {}).get("id") != chat_id or not msg.get("text"):
+        return None  # only the linked chat may talk to the assistant
+    return await bot_reply(db, row.user_id, msg["text"])
+
+
 async def poll_bot_once(db: Session) -> int:
-    """One pass over every linked Telegram connection. Returns messages answered."""
+    """One pass over every linked Telegram connection. Returns messages answered.
+
+    Delivery is at-most-once per update: the offset is acknowledged *before* the
+    update is handled. A message whose handling crashes therefore gets one
+    apology instead of being replayed - together with every message after it -
+    on each pass, which used to mean duplicate answers every few seconds and,
+    for a [Send] button, the risk of acting twice.
+    """
     from sqlalchemy import select
 
     from app.models import Credential
@@ -877,29 +905,30 @@ async def poll_bot_once(db: Session) -> int:
                                             allowed_updates=["message", "callback_query"])
         except itelegram.TelegramError:
             continue
-        last = offset
         for upd in updates if isinstance(updates, list) else []:
-            last = max(last, int(upd.get("update_id", 0)))
-            cb = upd.get("callback_query")
-            if cb:
-                if ((cb.get("message") or {}).get("chat") or {}).get("id") != chat_id:
-                    continue  # buttons only work in the linked chat
-                await _answer_callback(token, str(cb.get("id")))
-                reply = await bot_callback(db, row.user_id, str(cb.get("data") or ""))
-            else:
-                msg = upd.get("message") or {}
-                if (msg.get("chat") or {}).get("id") != chat_id or not msg.get("text"):
-                    continue  # only the linked chat may talk to the assistant
-                reply = await bot_reply(db, row.user_id, msg["text"])
+            try:
+                update_id = int(upd.get("update_id", 0))
+            except (TypeError, ValueError):
+                continue
+            if update_id <= offset:
+                continue  # already acknowledged
+            offset = update_id
+            conns.set_meta(db, row, update_offset=offset)
+            try:
+                reply = await _handle_update(db, row, token, chat_id, upd)
+            except Exception:  # noqa: BLE001 - one bad update must not stall the chat
+                db.rollback()
+                log.exception("telegram update %s could not be handled", update_id,
+                              extra={"operation": "telegram.update", "status": "failed"})
+                reply = BOT_FAILURE
+            if reply is None:
+                continue
             text, markup = reply if isinstance(reply, tuple) else (reply, None)
             try:
                 await itelegram.send(db, row, text, reply_markup=markup)
                 answered += 1
             except itelegram.TelegramError:
                 pass
-        if last != offset:
-            conns.set_health(db, row, meta.get("health") or conns.HEALTHY, meta.get("health_detail", ""),
-                             extra={"update_offset": last})
     return answered
 
 
@@ -933,6 +962,9 @@ async def scheduled_briefings(db: Session, now: dt.datetime | None = None) -> in
             sent += 1
         except (itelegram.TelegramError, AssistantError) as exc:
             log.warning("scheduled briefing not delivered: %s", getattr(exc, "message", exc))
+        except Exception:  # noqa: BLE001 - one user's failure must not cost the others their briefing
+            db.rollback()
+            log.exception("scheduled briefing failed", extra={"operation": "briefing.scheduled", "status": "failed"})
     return sent
 
 
