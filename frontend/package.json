@@ -1,6 +1,6 @@
 {
   "name": "automation-center-frontend",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "private": true,
   "type": "module",
   "description": "Automation Center — web control plane (React + Vite, deploys to Vercel).",

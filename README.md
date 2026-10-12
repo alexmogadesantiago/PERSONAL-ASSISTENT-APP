@@ -25,7 +25,7 @@ Todo corre **en local** (Windows + Docker). Sin cloud, sin SaaS, sin suscripcion
                                     └───────────────────────────────┘
 ```
 
-> **Estado:** v3.0. Funciona y está muy probado con servicios simulados; **Gmail y Gemini aún no se han probado con cuentas reales** (ver [Qué está probado](#qué-está-probado-y-qué-no)).
+> **Estado:** v3.1. Funciona y está muy probado con servicios simulados; **Gmail y Gemini aún no se han probado con cuentas reales** (ver [Qué está probado](#qué-está-probado-y-qué-no)).
 
 ---
 
@@ -36,7 +36,7 @@ Todo corre **en local** (Windows + Docker). Sin cloud, sin SaaS, sin suscripcion
 | **Command Center** | La portada responde a: ¿qué pasa hoy?, ¿qué debería hacer?, ¿hay algún problema? Barra para pedirle cosas al asistente, tus correos importantes, eventos, fechas límite, el estado de cada servicio y *insights* con un botón de acción. |
 | **Correo inteligente** | Analiza cada correo con IA: prioridad **LOW / NORMAL / HIGH / URGENT** *explicando el porqué* ("remitente importante · fecha límite en 48 h · requiere respuesta"), categoría, resumen y fechas. Detecta tareas, las convierte en recordatorios de Calendar y redacta respuestas en 4 tonos. **Nunca envía nada sin tu confirmación.** |
 | **Calendar** | Tus próximos días y un formulario para crear eventos en tu Google Calendar. |
-| **Chat del asistente** | Pregúntale "¿qué tengo pendiente hoy?" y responde con **tarjetas y botones** (correo, calendario, fechas límite), no solo texto. |
+| **Chat del asistente** | Pregúntale "¿qué tengo pendiente hoy?" y responde **en streaming** (la respuesta aparece mientras se escribe) con **tarjetas y botones** (correo, calendario, fechas límite), no solo texto. *Stop* corta de verdad y conserva lo que ya había llegado. |
 | **Telegram** | Un bot que es una extensión real del asistente: comandos y lenguaje natural. Solo responde a tu chat. Las respuestas a correos pasan por `[Enviar] [Editar] [Cancelar]`. |
 | **Briefing diario** | El resumen de tu día, bajo demanda, en la portada y automático en Telegram a la hora que elijas. |
 | **Automatizaciones** | Descríbelas en lenguaje natural ("cuando me escriba mi profesor, analízalo y avísame si es importante") o parte de una plantilla. Se ejecutan en n8n, que no necesitas abrir. Cada una muestra su salud. |
@@ -81,7 +81,7 @@ Se hace desde **Integraciones** en el panel. Nada de editar ficheros ni copiar t
 
 **2. IA** — **Ajustes → AI**: elige proveedor (Gemini, NVIDIA NIM u OpenRouter), pega la clave y pulsa *Test connection*. Claves: [Gemini](https://aistudio.google.com/app/apikey) · [NVIDIA NIM](https://build.nvidia.com) · [OpenRouter](https://openrouter.ai/keys).
 
-**3. Telegram** — crea un bot con [@BotFather](https://t.me/BotFather), pega su token en **Integraciones → Telegram** y pulsa **Start** en Telegram. No hay chat id que copiar.
+**3. Telegram** — crea un bot con [@BotFather](https://t.me/BotFather), pega su token en **Integraciones → Telegram** y pulsa **Start** en Telegram. No hay chat id que copiar. Por ese mismo bot te escriben también los 4 asistentes de serie y los avisos de fallo.
 
 El panel te guía en cada paso y te dice exactamente qué falta si algo no está conectado. Todo lo que pegas se guarda **cifrado** y nunca vuelve al navegador.
 
@@ -126,12 +126,14 @@ Detalle y riesgos conocidos: [docs/SECURITY.md](docs/SECURITY.md).
 
 | Nivel | Resultado |
 |---|---|
-| Backend | **574** tests ✅ |
-| Frontend | **178** tests ✅ (tipos y lint limpios) |
-| Instalador | **120** tests ✅ |
+| Backend | **612** tests ✅ |
+| Frontend | **190** tests ✅ (tipos y lint limpios) |
+| Instalador | **120** tests ✅ (en Windows, en CI) |
+| CI en cada push y PR | backend, frontend, migraciones en **PostgreSQL real** y los 5 workflows importados en un **n8n real** |
 | Flujos de punta a punta (login → conectar Google → leer → analizar → redactar → confirmar envío → Telegram → automatizar → fallo y reintento) | ✅ con servicios **simulados** |
 | Interfaz | revisada en el navegador sin desbordes de 375 a 1440 px |
 | Servicios **reales** (solo lectura) | ✅ n8n · ✅ API de Telegram · ✅ migraciones en PostgreSQL |
+| **n8n real** ejecutando los workflows | ✅ Laboral completo y el gestor de errores contra n8n 1.121.3 + PostgreSQL 16, con Telegram, scraper e IA sustituidos por servidores locales del mismo protocolo ([detalle](docs/TESTING.md#n8n-real)) |
 | **Gmail real · Gemini real** · enviar mensajes por Telegram · cadena completa real | ⛔ **no probado** con cuentas reales |
 
 Cuando conectes tus servicios, `python scripts/real-check.py --api http://localhost:8082 --user tu@correo` hace esa validación en **solo lectura** y marca cada paso `PASS`, `FAIL` o `SKIP` (no conectado = no se afirma nada). Nunca imprime asuntos, cuerpos ni claves.
@@ -166,7 +168,7 @@ docs/         documentación   scripts/real-check.py   validación con servicios
 ```
 
 ```bash
-cd backend  && python -m pytest                    # 574 tests
+cd backend  && python -m pytest                    # 612 tests
 cd frontend && npm test && npm run lint && npm run typecheck && npm run build
 powershell -File installer/tests/Test-Installer.ps1
 powershell -File build/build-exe.ps1               # instalador ligero
@@ -187,7 +189,7 @@ Además de todo lo anterior, vienen cuatro workflows listos (se activan desde el
 | **Marca Personal** | novedades de IA → borrador de post de LinkedIn | 08:15 |
 | **Email** | clasifica y resume tu Gmail, crea eventos de Calendar | continuo |
 
-**Deuda conocida:** estos cuatro envían a Telegram con sus **propios bots**, configurados en el launcher, y no con la conexión del panel. Funcionan igual que siempre; el análisis y el plan para unificarlo están en [docs/V3-AUDIT.md](docs/V3-AUDIT.md#los-4-asistentes-de-serie-y-telegram). Qué credencial necesita cada uno: [CREDENCIALES.md](CREDENCIALES.md).
+**Telegram:** los cuatro te escriben por el **Telegram que conectas en el panel**. Si prefieres que cada uno use su propio bot, ponlo en el launcher (token + chat id) y ese asistente lo usará en su lugar: [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md#los-4-asistentes-de-serie-y-telegram). Qué credencial necesita cada uno: [CREDENCIALES.md](CREDENCIALES.md).
 
 ---
 
@@ -200,7 +202,7 @@ Además de todo lo anterior, vienen cuatro workflows listos (se activan desde el
 | [docs/SECURITY.md](docs/SECURITY.md) | Credenciales, confirmaciones, qué ve la IA, riesgos conocidos |
 | [docs/DEMO.md](docs/DEMO.md) | Modo demo, vista de presentación y guion de 5 minutos para el TDR |
 | [docs/TESTING.md](docs/TESTING.md) | Niveles de prueba y qué se ha probado con servicios reales |
-| [docs/V3-AUDIT.md](docs/V3-AUDIT.md) | Auditoría de la v2.0, decisiones de la v3.0 e informe final |
+| [docs/V3-AUDIT.md](docs/V3-AUDIT.md) | Auditoría de la v2.0, decisiones de la v3.0, informe final y seguimiento v3.1 |
 | [docs/PRODUCT-REDESIGN.md](docs/PRODUCT-REDESIGN.md) | Historia del rediseño del producto, versión a versión |
 | [docs/INSTALLATION.md](docs/INSTALLATION.md) · [docs/UPGRADE.md](docs/UPGRADE.md) · [docs/BACKUP-RESTORE.md](docs/BACKUP-RESTORE.md) | Instalación, actualización y copias de seguridad |
 | [docs/CLOUD-DEPLOYMENT.md](docs/CLOUD-DEPLOYMENT.md) | Opcional: alojarlo en la nube en vez de en local |

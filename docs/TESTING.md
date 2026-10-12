@@ -23,7 +23,23 @@ powershell -File installer/tests/Test-Installer.ps1
 
 # Imágenes Docker (el backend ejecuta sus tests al construirse)
 docker build -f backend/Dockerfile -t pa-backend .
+
+# Contra un n8n real (opt-in): lee workflows y ejecuciones por su API
+cd backend && AC_N8N_BASE_URL=http://localhost:5678 AC_N8N_API_KEY=<clave> pytest -m integration
 ```
+
+### En cada push y cada pull request (CI)
+
+`.github/workflows/ci.yml` corre todo lo anterior en GitHub, y es también el
+*gate* de `release.yml` (una Release no se construye si falla):
+
+| Job | Qué hace |
+|---|---|
+| `repo` | Versión coherente (VERSION = backend = frontend), sintaxis de todos los `.ps1`, `docker compose config`, JSON de los workflows |
+| `backend` | `pytest`, `pip check` y la imagen Docker con sus tests dentro |
+| `migrations` | PostgreSQL 16 real: `alembic upgrade head`, `alembic check` (modelos = migraciones), `downgrade base` y vuelta a subir |
+| `n8n` | El n8n de `docker-compose.yml` de verdad: importa los cinco workflows y corre `pytest -m integration` contra su API |
+| `frontend` | lint, tipos, tests y build |
 
 ## Qué cubre cada suite
 
@@ -32,11 +48,32 @@ docker build -f backend/Dockerfile -t pa-backend .
 | `backend/tests/test_v3.py` (43) | Prioridad con motivos, memoria (y que rechaza secretos), tareas, modo demo, briefing 2.0, `ask`, insights, sugerencias, confirmación en Telegram (caducidad, un solo uso, solo el chat vinculado), briefing programado, relé `notify`, dependencias, privacidad/seguridad, centro n8n, consejo de reintento |
 | `backend/tests/test_e2e_flows.py` (3) | Los 10 flujos: login → dashboard · conectar Google (OAuth real con PKCE) · leer · analizar · redactar · **confirmar envío** · comando de Telegram · crear · ejecutar · fallo → reintento. Y que **ningún secreto** aparece en respuestas ni logs |
 | `backend/tests/test_assistant.py`, `test_integrations.py`, `test_automations.py`, `test_observability.py`… | Gmail, Hub, OAuth, builder, errores (v0.6–v2.0, intactos) |
-| `backend/tests/test_workflows.py` | Los workflows de n8n no llevan secretos ni chat ids, validan su configuración, reportan fallos |
+| `backend/tests/test_workflows.py` | Los workflows de n8n no llevan secretos ni chat ids, validan su configuración, reportan fallos; cada envío a Telegram pasa por `¿Bot del launcher?` y tiene su gemelo por el panel (`/api/automations/notify`) |
+| `backend/tests/test_ai_stream.py` (16) | Streaming de los tres dialectos (deltas, uso, comentarios SSE, error a mitad), *fallback* solo antes del primer token, Stop cierra la conexión con el proveedor, endpoint SSE (códigos HTTP antes del stream, `event: error` después, contadores y auditoría) |
 | `frontend/src/pages/v3.test.tsx` (26) | Tareas, centro n8n, atajos (`G` + tecla), paleta, memoria, modo demo, privacidad/seguridad, credenciales 2.0, Inbox (filtros, razones, **confirmación antes de enviar**), vista de presentación |
-| `frontend/src/pages/assistant.test.tsx` | Chat estructurado: secciones, botones, contexto personal enviado al modelo; sigue respondiendo si el contexto falla |
+| `frontend/src/pages/assistant.test.tsx` | Chat estructurado: secciones, botones, contexto personal enviado al modelo; sigue respondiendo si el contexto falla. Streaming: el texto crece en pantalla, **Stop** conserva lo recibido, un fallo a mitad lo explica, una directiva de acción a medio escribir nunca se ve, y un backend sin streaming responde de una vez |
+| `frontend/src/api/sse.test.ts` | Lector SSE (eventos partidos entre paquetes, comentarios, CRLF) y `aiApi.generateStream` |
 | `frontend/src/features/activity/ExecutionView.test.tsx` | Línea de tiempo y reintento inteligente |
 | `installer/tests/Test-Installer.ps1` (108) | Rutas de datos, migración, sin escribir en Program Files |
+
+## n8n real
+
+Resultado del **2026-10-12**, en un entorno desechable: **n8n 1.121.3** (la
+imagen de `docker-compose.yml`) y **PostgreSQL 16** en contenedores, el backend
+de esta rama, y en los bordes externos (Telegram Bot API, scraper e IA) servidores
+locales que hablan el mismo protocolo — nada de Gmail, Telegram ni IA reales.
+
+| Comprobación | Resultado |
+|---|---|
+| Importar los 5 workflows (`n8n import:workflow`) | ✅ |
+| `pytest -m integration` contra la API de n8n (salud, los 4 asistentes visibles, ejecuciones) | ✅ 3/3 |
+| **Laboral completo**: perfil (`/api/profiles/runtime`) → scraper → filtro → *scoring* → IA por `/api/ai/generate` (esquema JSON validado) → digest → `¿Bot del launcher?` = no → `/api/automations/notify` → bot del panel | ✅ mensaje entregado en HTML al chat vinculado |
+| Laboral sin ofertas que encajen | ✅ ahora avisa «ninguna de las N ofertas encajó con tu perfil» (antes se paraba sin decir nada; corregido) |
+| Laboral con bot propio a medias (token sin chat id) | ✅ se para en *Comprobar configuracion* con el motivo |
+| Laboral con bot propio completo | ✅ elige la ruta directa a `api.telegram.org` |
+| **Gestor de errores** con un fallo de producción (webhook) | ✅ `/api/automations/events` (actividad del panel) + aviso por el bot del panel; el segundo fallo igual en la misma hora, silenciado |
+| Migraciones en PostgreSQL real: `upgrade head`, `alembic check`, `downgrade base`, `upgrade head` | ✅ sin deriva |
+| Chat en streaming en Chromium real contra el backend | ✅ primer token a ~0,2 s (antes había que esperar a la respuesta entera), cursor al final del texto, sin errores de consola |
 
 ## Qué se ha probado con servicios reales
 

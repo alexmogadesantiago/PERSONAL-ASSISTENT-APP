@@ -33,6 +33,17 @@ El proveedor, el modelo y la clave se eligen en **Ajustes → AI**; la clave se
 guarda cifrada. Hay *fallback* automático a otro proveedor configurado. El panel
 muestra modelo, peticiones de hoy, latencia media y errores de hoy.
 
+**El chat responde en streaming** (`POST /api/ai/generate/stream`, eventos
+`start` · `delta` · `done` · `error`): la respuesta aparece con la primera
+palabra en vez de esperar a la última. Los tres dialectos lo soportan (NIM y
+OpenRouter con `stream: true`, Gemini con `streamGenerateContent?alt=sse`).
+El *fallback* sigue funcionando, pero solo **antes del primer token**: una vez
+que el texto ha llegado a la pantalla, cambiar de proveedor lo repetiría o lo
+contradiría, así que un fallo a mitad se muestra tal cual («la respuesta se
+interrumpió: …») y se conserva lo recibido. **Stop** corta la petición de verdad
+y también conserva lo recibido. Las automatizaciones siguen usando
+`/api/ai/generate`, que valida el JSON entero.
+
 Qué recibe la IA y qué no: ver **Ajustes → Privacy** (se genera con tu
 configuración real) y [SECURITY.md](SECURITY.md).
 
@@ -60,6 +71,14 @@ Para no bombardearte, las alertas se **agrupan en el briefing diario**
 (`Ajustes → AI memory`: hora y canal). Las respuestas con botones usan una
 confirmación que caduca a los 15 minutos.
 
+Cada mensaje se atiende **como mucho una vez**: el bot confirma el mensaje a
+Telegram *antes* de procesarlo. Si uno falla de forma inesperada recibes un
+«No he podido procesar eso ahora mismo» y el bot sigue con el siguiente; antes,
+un mensaje así bloqueaba la cola y se repetía cada pocos segundos.
+
+¿Servidor propio de la Bot API? `AC_TELEGRAM_API_URL=http://tu-servidor:8081`
+(vacío = `api.telegram.org`).
+
 ## n8n
 
 n8n es el **motor**, no la interfaz: las automatizaciones se construyen en el
@@ -82,14 +101,32 @@ guardadas están a salvo»*: se pueden seguir editando y se ejecutan al volver.
 | Email Summarizer | Gmail → IA → Drive |
 | Failed Automation Alert | n8n → Telegram (workflow del sistema `00-error-handler`) |
 
-## Los 4 asistentes de serie y Telegram (deuda conocida)
+## Los 4 asistentes de serie y Telegram
 
-Los workflows `01-email`, `02-laboral`, `03-news` y `04-marca-personal` envían a
-Telegram con **sus propios bots**, cuyos tokens salen del launcher (variables
-`TELEGRAM_*` en el entorno de n8n), no del Integrations Hub. Es un segundo
-sistema de credenciales. El análisis completo y el plan de migración están en
-[V3-AUDIT.md](V3-AUDIT.md#los-4-asistentes-de-serie-y-telegram). Mientras tanto
-**siguen funcionando igual**: no se ha tocado ningún workflow.
+Los workflows `01-email`, `02-laboral`, `03-news`, `04-marca-personal` y el
+gestor de errores `00-error-handler` envían por **el Telegram que conectas en el
+panel**: antes de cada envío, un nodo `¿Bot del launcher?` decide la ruta.
+
+```
+            ┌─ sí: token propio + TELEGRAM_CHAT_ID ─► api.telegram.org (bot propio)
+ mensaje ─► ¿Bot del launcher?
+            └─ no ────────────────────────────────► POST /api/automations/notify
+                                                     (token de servicio) ─► bot del panel
+```
+
+- Sin tocar nada en el launcher, todo llega por **un solo bot**, cifrado en
+  PostgreSQL. n8n nunca ve su token.
+- Quien ya tenía los cuatro bots del launcher **no nota ningún cambio**: con
+  token y chat id, cada asistente sigue usando el suyo.
+- Un bot a medias (token sin chat id, o un token mal copiado) para el workflow en
+  *Comprobar configuracion* con un mensaje que dice qué falta; nunca se
+  redirige en silencio.
+- El destinatario es el dueño del perfil activo (`AC_PROFILE_ID`) o, si ese
+  usuario no tiene Telegram, el primer administrador que lo tenga.
+
+Validado contra n8n 1.121.3 real (ver [TESTING.md](TESTING.md#n8n-real)). El
+historial de la decisión está en
+[V3-AUDIT.md](V3-AUDIT.md#los-4-asistentes-de-serie-y-telegram).
 
 ## Estados de una conexión
 

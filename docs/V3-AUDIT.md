@@ -118,6 +118,17 @@ escribirlos. En un PC de un solo usuario es asumible; no lo es en uno compartido
 2. Cuando eso esté probado en real, ocultar los campos `TELEGRAM_TOKEN_*` del
    launcher y dejar de pasarlos al contenedor.
 
+**Fase 1 aplicada en la v3.1 (2026-10-12).** Los cinco workflows llevan el `IF`
+(`¿Bot del launcher?`) y su gemelo por `POST /api/automations/notify`; el
+comprobador de configuración ya no exige `TELEGRAM_*` y sí detecta un bot a
+medias. Copia previa en `backups/workflows-before-hub-telegram-2026-10-12/`.
+Las tres objeciones de arriba quedaron resueltas así: se validó contra un **n8n
+1.121.3 real** con el backend de esta versión (no contra la instalación de este
+PC); la identidad no cambia para quien tenga los bots del launcher (con token y
+chat id siguen teniendo prioridad); y los tests fijan ahora el contrato nuevo
+(`test_workflows.py`). La fase 2 (retirar los campos del launcher) sigue
+pendiente de que lo pruebes con tu Telegram real.
+
 ---
 
 ## PERSONAL ASSISTANT v3.0 - informe final
@@ -186,4 +197,49 @@ Remaining technical debt:
   4 built-in assistants use launcher Telegram tokens (plan above).
   Gmail archive needs the optional gmail.modify permission (re-consent).
   No multi-provider AI selection per feature (the architecture allows it).
+```
+
+---
+
+## v3.1 — seguimiento (2026-10-12)
+
+```
+Implementado:
+  Chat en streaming (POST /api/ai/generate/stream, SSE) para NIM, OpenRouter y
+    Gemini; fallback solo antes del primer token; Stop y los fallos a mitad
+    conservan lo recibido; un backend antiguo responde de una vez
+  Los 4 asistentes de serie + el gestor de errores envían por el Telegram del
+    panel (fase 1 del plan de arriba); los bots del launcher pasan a opcionales
+  AC_TELEGRAM_API_URL: servidor propio de la Bot API
+  CI en cada push/PR (ci.yml), que también es el gate de release.yml
+
+Corregido (encontrado al probar):
+  Bot de Telegram: un mensaje que fallaba de forma inesperada bloqueaba la cola
+    y se repetía, con todos los posteriores, cada 4 s (respuestas duplicadas;
+    riesgo de doble acción en [Enviar]). Ahora se confirma antes de procesar.
+  Guardar el offset del bot sobrescribía el estado de salud recién anotado
+  send_reply dejaba escapar un fallo de Gmail sin traducirlo
+  Un briefing programado con un fallo inesperado cortaba la pasada de los
+    demás usuarios (salían en la siguiente) y se registraba como caída del bucle
+  release.yml: `docker compose config` fallaba siempre sin .env, así que el
+    gate de la Release no podía pasar
+  Laboral: si el filtro del perfil o la deduplicación dejaban 0 ofertas, el
+    workflow se paraba sin avisar
+  Inbox → Calendar usaba la ejecución de prueba del builder: ignoraba el modo
+    demo (podía crear un evento real) y lo auditaba como otra cosa
+  Los tests `-m integration` nunca podían ejecutarse: conftest borraba la clave
+  Chat: cambiar de conversación mientras se generaba podía archivar la
+    respuesta en la conversación equivocada
+  HTML inválido en la portada (<div> dentro de <p>)
+
+Pruebas:
+  Backend:   612 passed (575 al empezar; +37)
+  Frontend:  190 passed (177 al empezar; +13), +1 que solo corre con el build; tsc y eslint limpios
+  n8n real:  5 workflows importados; Laboral completo y gestor de errores
+             ejecutados contra n8n 1.121.3 + PostgreSQL 16 (ver TESTING.md)
+  Navegador: chat en streaming en Chromium contra el backend real
+
+Sigue sin probar con cuentas reales: Gmail, Gemini, Telegram (envío real).
+Deuda restante: fase 2 de Telegram (retirar los campos del launcher), selección
+de proveedor de IA por función.
 ```

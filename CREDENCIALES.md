@@ -12,8 +12,8 @@ alta estas credenciales. Ordenadas de menos a más esfuerzo.
 | Servicio | Lo usan | Dónde se pone | Coste |
 |---|---|---|---|
 | Proveedor de IA (NVIDIA NIM, OpenRouter o Gemini) | Noticias, Marca Personal, Laboral, Email | **panel web** → Settings → Artificial Intelligence | Gratis / de pago según proveedor |
-| Telegram Bot | Noticias, Marca Personal, Laboral, Email | launcher → **Ajustes** (escribe el `.env`) | Gratis |
-| Bot de alertas (opcional) | Sistema - Gestor de errores | launcher → **Ajustes** → `TELEGRAM_TOKEN_ALERTAS` | Gratis |
+| Telegram (un bot) | Noticias, Marca Personal, Laboral, Email y los avisos de fallo | **panel web** → Integraciones → Telegram | Gratis |
+| Bots propios por asistente (opcional) | El asistente que lo tenga | launcher → **Ajustes** (escribe el `.env`) | Gratis |
 | Google OAuth (Gmail + Calendar) | **solo** Email | n8n → Credentials | Gratis |
 
 Nada de esto se sube a git: `.env` está en `.gitignore`.
@@ -69,26 +69,46 @@ Una respuesta con `"text"` y `"provider"` = OK.
 
 ---
 
-## 2. Telegram — `TELEGRAM_BOT_TOKEN` y `TELEGRAM_CHAT_ID`
+## 2. Telegram — en el panel, sin copiar ningún chat id
+
+**Lo normal (y lo único necesario):**
 
 1. En Telegram, habla con **@BotFather** → `/newbot` → nombre y usuario del bot.
-   Te da un token tipo `8123456:AAE...`. Ese es `TELEGRAM_BOT_TOKEN`.
-2. **Escribe cualquier mensaje a tu bot** (búscalo por su @usuario y pulsa Start).
-3. Abre en el navegador (pon tu token):
-   `https://api.telegram.org/bot<TOKEN>/getUpdates`
-   Busca `"chat":{"id":123456789,...}`. Ese número es `TELEGRAM_CHAT_ID`.
-4. En `.env`:
-   ```
-   TELEGRAM_BOT_TOKEN=8123456:AAE...
-   TELEGRAM_CHAT_ID=123456789
-   ```
-5. Aplica: `docker compose up -d`
+   Te da un token tipo `8123456:AAE...`.
+2. Panel → **Integraciones → Telegram** → pega el token.
+3. Pulsa el enlace que aparece y luego **Start** en Telegram. El chat se vincula
+   solo; no hay chat id que copiar.
+4. **Send a test** en el panel: debe llegarte un mensaje.
 
-Probar:
-```bash
-curl -s "https://api.telegram.org/bot<TOKEN>/sendMessage?chat_id=<CHAT_ID>&text=hola"
-```
-Debe llegarte "hola" al chat.
+Desde ese momento los **cuatro asistentes de serie** (Email, Laboral, Noticias,
+Marca Personal) y los **avisos de fallo** te escriben por ese bot: n8n llama a
+`POST /api/automations/notify` con el token de servicio y el backend envía por la
+conexión del panel. El token del bot está cifrado en PostgreSQL y **n8n no lo
+ve nunca**.
+
+**Opcional — un bot propio por asistente.** Si prefieres que cada asistente
+escriba desde su propio bot (para silenciarlos por separado), en el launcher →
+**Ajustes** rellena el token de ese asistente y el chat id:
+
+| Variable | Asistente |
+|---|---|
+| `TELEGRAM_TOKEN_EMAIL` | Email |
+| `TELEGRAM_TOKEN_LABORAL` | Laboral |
+| `TELEGRAM_NOTICIAS_TOKEN` | Noticias |
+| `TELEGRAM_TOKEN_MARCA` | Marca Personal |
+| `TELEGRAM_TOKEN_ALERTAS` | Avisos de fallo (si no, el primero de los cuatro) |
+| `TELEGRAM_CHAT_ID` | Común a todos: escribe a tu bot y abre `https://api.telegram.org/bot<TOKEN>/getUpdates` → `"chat":{"id":…}` |
+
+Las reglas, iguales en los cinco workflows:
+
+- **token + chat id** → ese asistente usa su bot propio;
+- **ni token ni nada** → usa el Telegram del panel;
+- **token sin chat id** (o un token mal copiado) → el workflow se para con
+  *Configuración incompleta* y te dice qué falta. Nunca cambia de canal a escondidas.
+
+Avanzado: si tienes un servidor propio de la Bot API
+([telegram-bot-api](https://github.com/tdlib/telegram-bot-api)), el backend lo
+usa con `AC_TELEGRAM_API_URL=http://tu-servidor:8081`.
 
 ---
 
@@ -146,14 +166,16 @@ Cuando cualquiera falla:
 1. registra el fallo en la actividad del panel (`POST /api/automations/events`,
    autenticado con `AC_SERVICE_TOKEN`);
 2. avisa por Telegram con el workflow, el nodo, el error y un enlace a la
-   ejecución. Usa `TELEGRAM_TOKEN_ALERTAS` si existe; si no, el primer bot
-   configurado. El mismo fallo se avisa como mucho **una vez por hora**.
+   ejecución: por el Telegram del panel o, si hay un bot propio en el launcher
+   (`TELEGRAM_TOKEN_ALERTAS` o el primero de los cuatro, con `TELEGRAM_CHAT_ID`),
+   por ese. El mismo fallo se avisa como mucho **una vez por hora**.
 
 No hace falta activarlo: n8n lo ejecuta solo cuando otro workflow falla.
 
 Cada asistente empieza además por un nodo **Comprobar configuracion** que,
 si falta una variable, falla con un mensaje que dice cuál y dónde se pone
-(p. ej. `TELEGRAM_TOKEN_EMAIL (launcher > Ajustes > Bot Email)`).
+(p. ej. `AC_PROFILE_ID (launcher > Ajustes > ID del perfil activo)`, o un bot
+propio con token pero sin `TELEGRAM_CHAT_ID`).
 
 ---
 
@@ -174,7 +196,7 @@ servicio `playwright/`.
 
 - [ ] Proveedor de IA configurado en el panel y **TEST CONNECTION** en verde
 - [ ] `.env` con `AC_API_URL` y `AC_SERVICE_TOKEN` reales
-- [ ] `.env` con `TELEGRAM_BOT_TOKEN` y `TELEGRAM_CHAT_ID` reales
+- [ ] Telegram conectado en el panel (Integraciones → Telegram → **Send a test**)
 - [ ] `docker compose up -d` tras editar `.env`
 - [ ] Workflow **Noticias** probado → llega a Telegram → activado
 - [ ] Workflow **Marca Personal** probado → borradores en `output/marca-personal/` → activado

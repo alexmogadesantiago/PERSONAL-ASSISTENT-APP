@@ -241,6 +241,26 @@ timeout, HTTP 429, HTTP 5xx, connection refused. HTTP 400 (bad request) and
 would spend a second quota to reach the same conclusion and would hide the real
 fault from the operator.
 
+### Streaming (the chat)
+
+`POST /api/ai/generate/stream` takes the same body as `/generate` and answers
+with server-sent events: `start` (who answers), `delta` (each piece of text),
+`done` (latency, usage, whether the fallback served it) and `error`. Each
+provider implements `AIProvider.stream()` in its own dialect — `stream: true` on
+`/chat/completions` for NIM and OpenRouter, `:streamGenerateContent?alt=sse` for
+Gemini; a provider without one falls back to sending its whole answer once.
+
+Two rules shape it:
+
+* **The fallback only applies before the first token.** The route pulls the
+  first event before answering, so configuration, credential and fallback
+  failures are ordinary HTTP statuses. Once text has reached the reader a
+  second provider would repeat or contradict it, so a later failure is an
+  `event: error` and what arrived is kept.
+* **Plain text only.** Structured output must be validated whole, so automations
+  stay on `/generate`. Usage counters and the `ai.fallback` audit row are written
+  after the stream ends, exactly as `/generate` writes them.
+
 ### Notes verified against the live providers
 
 * **NIM's `GET /models` is a catalogue, not an entitlement list.** The hosted

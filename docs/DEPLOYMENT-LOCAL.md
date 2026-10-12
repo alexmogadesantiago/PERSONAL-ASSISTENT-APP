@@ -75,7 +75,8 @@ esos datos como ficheros, usa **Copia de seguridad**: el resultado aparece en
 | Abrir el panel | Botón **Abrir panel**, o el icono de bandeja |
 | Arrancar / parar / reiniciar | Botones del launcher, o el icono de bandeja |
 | Ver los logs | Botón **Ver logs**: abre `logs\` y refresca el volcado de los contenedores |
-| Meter los tokens de Telegram | Botón **Ajustes** del launcher |
+| Recibir los avisos por Telegram | En el panel: **Integraciones → Telegram** (un bot para todo) |
+| Un bot propio por asistente (opcional) | Botón **Ajustes** del launcher: token + chat id |
 | Copia de seguridad | Menú Inicio → **Copia de seguridad** |
 
 El launcher no reimplementa la monitorización: pregunta a `GET /api/health` y a

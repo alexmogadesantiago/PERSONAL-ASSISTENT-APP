@@ -40,7 +40,7 @@ function Brand() {
     <div className="flex items-center gap-2.5 px-2">
       <BrandMark />
       <div className="leading-tight">
-        <p className="flex items-center gap-1.5 text-[15px] font-semibold tracking-tight text-fg">Personal Assistant <span className="rounded-md bg-brand/15 px-1 text-[10px] font-semibold text-brand">3.0</span></p>
+        <p className="flex items-center gap-1.5 text-[15px] font-semibold tracking-tight text-fg">Personal Assistant <span className="rounded-md bg-brand/15 px-1 text-[10px] font-semibold text-brand">3.1</span></p>
         <p className="text-[11px] text-subtle">AI · Automation · Integrations</p>
       </div>
     </div>

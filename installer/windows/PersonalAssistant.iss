@@ -3,7 +3,7 @@
 ;  Produce: Personal-Assistant-Setup.exe
 ;
 ;  Compilar:
-;     ISCC.exe /DAppVersion=3.0.0 installer\windows\PersonalAssistant.iss
+;     ISCC.exe /DAppVersion=3.1.0 installer\windows\PersonalAssistant.iss
 ;     (build\build-offline.ps1 añade /DOffline=1 -> Personal-Assistant-Setup-Full.exe)
 ;  (build\build-exe.ps1 lee VERSION y pasa /DAppVersion automáticamente.)
 ;

@@ -51,6 +51,23 @@ cannot make the monitor tests pass or fail by accident. The `client` fixture
 also points the health probes at the test database, because the monitor opens
 its own sessions outside the request cycle.
 
+The live n8n tests are opt-in. `conftest.py` keeps the key aside (as
+`PA_LIVE_N8N_*`) before it scrubs the environment, so this works as written:
+
+```bash
+AC_N8N_BASE_URL=http://localhost:5678 AC_N8N_API_KEY=<key> python -m pytest -m integration
+```
+
+### Continuous integration
+
+`.github/workflows/ci.yml` runs on every push and pull request and is also the
+gate `release.yml` calls before building anything: repository coherence
+(version, PowerShell syntax, `docker compose config`, workflow JSON), the backend
+suite and Docker test image, migrations against a real PostgreSQL (`upgrade`,
+`alembic check`, `downgrade base`, `upgrade`), the five workflows imported into
+the n8n version pinned in `docker-compose.yml` plus `pytest -m integration`
+against it, and the frontend lint, types, tests and build.
+
 ### Migrations
 
 ```bash
