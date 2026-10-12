@@ -23,10 +23,12 @@ def anyio_backend():
 
 @pytest.fixture
 def svc() -> N8nService:
-    key = os.getenv("AC_N8N_API_KEY") or os.getenv("N8N_API_KEY")
+    # conftest.py keeps these aside (PA_LIVE_*) before it scrubs AC_N8N_* for
+    # the hermetic unit suite.
+    key = os.getenv("PA_LIVE_N8N_API_KEY")
     if not key:
         pytest.skip("no n8n API key (set AC_N8N_API_KEY) — live n8n test skipped")
-    base = os.getenv("AC_N8N_BASE_URL", "http://localhost:5678")
+    base = os.getenv("PA_LIVE_N8N_BASE_URL") or "http://localhost:5678"
     return N8nService(base_url=base, api_key=key)
 
 

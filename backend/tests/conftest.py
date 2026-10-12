@@ -8,6 +8,12 @@ os.environ.setdefault("AC_DATABASE_URL", "sqlite+pysqlite:///:memory:")
 # (e.g. for the MCP tooling) that would otherwise leak into get_settings() and
 # make the service-monitor tests non-deterministic. Integration tests that need
 # a real n8n set these explicitly.
+#
+# The opt-in live tests (`pytest -m integration`) are configured with the same
+# names, so their values are kept aside under PA_LIVE_* before the scrub -
+# otherwise the documented command could never reach the live n8n.
+os.environ.setdefault("PA_LIVE_N8N_API_KEY", os.environ.get("AC_N8N_API_KEY") or os.environ.get("N8N_API_KEY") or "")
+os.environ.setdefault("PA_LIVE_N8N_BASE_URL", os.environ.get("AC_N8N_BASE_URL") or "http://localhost:5678")
 for _leak in (
     "N8N_API_KEY",
     "AC_N8N_API_KEY",

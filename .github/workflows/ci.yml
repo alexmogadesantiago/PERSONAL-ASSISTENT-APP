@@ -1,0 +1,213 @@
+name: ci
+
+# Validacion en cada push y en cada pull request. Es tambien el gate de
+# `release.yml` (que la llama con `uses:`), asi que una Release se construye
+# exactamente con las mismas comprobaciones que ve cada cambio: no hay dos
+# listas que mantener a mano.
+on:
+  push:
+    branches: ['**']
+    tags-ignore: ['**']
+  pull_request:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Un push nuevo a la misma rama cancela la validacion anterior. Dentro de
+  # una llamada desde release.yml, `workflow_ref` es el de release.yml, asi que
+  # su grupo (por tag) nunca choca con el de un push normal.
+  group: ci-${{ github.workflow_ref }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # -------------------------------------------------------------------------
+  # Coherencia del repositorio: version, scripts PowerShell, docker compose,
+  # workflows de n8n. Rapido y sin dependencias.
+  # -------------------------------------------------------------------------
+  repo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Coherencia de version (VERSION == backend == frontend)
+        run: |
+          v=$(tr -d ' \t\r\n' < VERSION)
+          b=$(grep -E '^version *= *"' backend/pyproject.toml | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+          f=$(node -p "require('./frontend/package.json').version")
+          echo "VERSION=$v  backend/pyproject.toml=$b  frontend/package.json=$f"
+          if [ "$v" != "$b" ] || [ "$v" != "$f" ]; then
+            echo "::error::version mismatch (VERSION=$v backend=$b frontend=$f)"
+            exit 1
+          fi
+
+      - name: Sintaxis de los scripts PowerShell (AST parse)
+        shell: pwsh
+        run: |
+          $bad = 0
+          Get-ChildItem -Recurse -Include *.ps1 -Path installer,build,scripts | ForEach-Object {
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$null, [ref]$errors) | Out-Null
+            if ($errors -and $errors.Count) {
+              $bad++
+              Write-Host "FAIL  $($_.FullName)"
+              $errors | ForEach-Object { Write-Host "      $($_.Message)" }
+            } else {
+              Write-Host "ok    $($_.Name)"
+            }
+          }
+          if ($bad) { throw "$bad script(s) PowerShell con errores de sintaxis" }
+
+      # El compose exige credenciales reales (`:?FALTA_EN_EL_ENV`) para no
+      # arrancar a medias; aqui solo se valida su forma, con los valores de
+      # ejemplo del repositorio.
+      - name: docker compose config
+        run: docker compose --env-file .env.example config -q
+
+      - name: Workflows de n8n (JSON valido)
+        run: |
+          for f in workflows/*.json; do
+            python3 -c "import json,sys; json.load(open(sys.argv[1], encoding='utf-8'))" "$f" \
+              && echo "ok    $f" || { echo "::error file=$f::JSON no valido"; exit 1; }
+          done
+
+  # -------------------------------------------------------------------------
+  # Backend: tests (SQLite), dependencias, imagen Docker con su propio test.
+  # -------------------------------------------------------------------------
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Backend · instalar dependencias
+        working-directory: backend
+        run: pip install ".[dev]"
+
+      - name: Backend · pytest
+        working-directory: backend
+        run: pytest
+
+      - name: Backend · pip check
+        run: pip check
+
+      - name: Backend · docker build --target test
+        run: docker build --target test -f backend/Dockerfile .
+
+  # -------------------------------------------------------------------------
+  # Migraciones contra un PostgreSQL de verdad (los tests usan SQLite):
+  # upgrade, sin deriva modelo<->migraciones, downgrade completo y upgrade.
+  # -------------------------------------------------------------------------
+  migrations:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: automation_center
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci-only-password
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U ci -d automation_center"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      AC_ENVIRONMENT: testing
+      AC_DATABASE_URL: postgresql+psycopg://ci:ci-only-password@localhost:5432/automation_center
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      - name: Instalar dependencias
+        working-directory: backend
+        run: pip install "."
+      - name: alembic upgrade head
+        working-directory: backend
+        run: alembic upgrade head
+      - name: alembic check (modelos == migraciones)
+        working-directory: backend
+        run: alembic check
+      - name: alembic downgrade base && upgrade head
+        working-directory: backend
+        run: alembic downgrade base && alembic upgrade head
+
+  # -------------------------------------------------------------------------
+  # n8n de verdad, la misma version que docker-compose: importa los cinco
+  # workflows (un JSON que esta version rechaza falla aqui, no en el PC del
+  # usuario) y corre los tests `-m integration` contra su API.
+  # -------------------------------------------------------------------------
+  n8n:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      - name: Instalar dependencias del backend
+        working-directory: backend
+        run: pip install ".[dev]"
+      - name: Arrancar n8n (version de docker-compose.yml)
+        run: |
+          image=$(grep -E '^\s+image: n8nio/n8n:' docker-compose.yml | head -1 | awk '{print $2}')
+          echo "imagen: $image"
+          docker run -d --name n8n -p 127.0.0.1:5678:5678 \
+            -e N8N_LISTEN_ADDRESS=0.0.0.0 -e N8N_DIAGNOSTICS_ENABLED=false \
+            -e N8N_PERSONALIZATION_ENABLED=false -e N8N_SECURE_COOKIE=false \
+            -v "$PWD/workflows:/files/workflows:ro" "$image"
+          for i in $(seq 1 60); do curl -fsS http://localhost:5678/healthz && break; sleep 2; done
+      - name: Propietario y API key (n8n efimero)
+        run: python3 scripts/ci/n8n_api_key.py http://localhost:5678
+      - name: Importar los workflows
+        run: docker exec -e N8N_RUNNERS_BROKER_PORT=5692 n8n n8n import:workflow --separate --input=/files/workflows
+      - name: pytest -m integration
+        working-directory: backend
+        env:
+          AC_N8N_BASE_URL: http://localhost:5678
+        run: pytest -m integration
+      - name: Log de n8n (si algo fallo)
+        if: failure()
+        run: docker logs n8n | tail -100
+
+  # -------------------------------------------------------------------------
+  # Frontend: lint, tipos, tests, build.
+  # -------------------------------------------------------------------------
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Frontend · npm ci
+        working-directory: frontend
+        run: npm ci
+
+      - name: Frontend · lint
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Frontend · typecheck
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: Frontend · test
+        working-directory: frontend
+        run: npm run test
+
+      - name: Frontend · build
+        working-directory: frontend
+        run: npm run build
