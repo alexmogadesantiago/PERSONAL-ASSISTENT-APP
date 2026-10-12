@@ -13,7 +13,7 @@
  */
 import type { AutomationKey } from "@/features/automations/catalog";
 
-export type RequirementCheck = "ai" | "service_token" | "n8n" | "profile" | "manual";
+export type RequirementCheck = "ai" | "service_token" | "n8n" | "profile" | "telegram" | "manual";
 
 export type RequirementKind = "api_key" | "oauth2" | "bot_token" | "token" | "identifier";
 
@@ -115,28 +115,31 @@ export const CREDENTIAL_REQUIREMENTS: CredentialRequirement[] = [
     check: "n8n",
   },
   {
-    id: "telegram-chat",
-    title: "Telegram chat id",
-    kind: "identifier",
+    id: "telegram-hub",
+    title: "Telegram (panel connection)",
+    kind: "bot_token",
     usedBy: ALL,
-    location: "launcher",
-    envVars: ["TELEGRAM_CHAT_ID"],
-    obtainHref: "https://core.telegram.org/bots/api#getupdates",
-    obtainLabel: "How getUpdates works",
+    location: "panel",
+    configureHref: "/integrations/telegram",
+    configureLabel: "Connect Telegram",
+    obtainHref: "https://t.me/BotFather",
+    obtainLabel: "Open @BotFather",
     steps: [
-      "Send any message to each of your bots (press Start).",
-      "Open https://api.telegram.org/bot<TOKEN>/getUpdates and copy the number in \"chat\":{\"id\": …}.",
-      "Paste it in the launcher → Ajustes → Chat ID de Telegram.",
+      "Create one bot with @BotFather → /newbot and paste its token in Integrations → Telegram.",
+      "Press Start in Telegram: the chat links itself, there is no chat id to copy.",
+      "The four assistants and the failure alerts send through it (POST /api/automations/notify). The token stays encrypted in the panel; n8n never sees it.",
     ],
-    check: "manual",
+    check: "telegram",
   },
   {
     id: "telegram-bots",
-    title: "Telegram bot tokens",
+    title: "Own bot per assistant",
     kind: "bot_token",
     usedBy: ALL,
+    optional: true,
     location: "launcher",
     envVars: [
+      "TELEGRAM_CHAT_ID",
       "TELEGRAM_NOTICIAS_TOKEN",
       "TELEGRAM_TOKEN_MARCA",
       "TELEGRAM_TOKEN_LABORAL",
@@ -146,10 +149,10 @@ export const CREDENTIAL_REQUIREMENTS: CredentialRequirement[] = [
     obtainHref: "https://t.me/BotFather",
     obtainLabel: "Open @BotFather",
     steps: [
-      "Talk to @BotFather → /newbot, once per automation (one bot each keeps the chats tidy).",
-      "Paste each token (123456:AA…) in the launcher → Ajustes. The launcher restarts n8n to apply them.",
-      "Optional: TELEGRAM_TOKEN_ALERTAS for failure alerts; without it they go out through the first bot configured.",
-      "Failures are reported by the «Sistema - Gestor de errores» workflow, so a wrong token does not fail silently.",
+      "Only if you want each assistant to write from its own bot. Without these, everything goes through the panel's Telegram.",
+      "Set the bot token and TELEGRAM_CHAT_ID in the launcher → Ajustes: an assistant with both uses its own bot, one with neither uses the panel.",
+      "A token without a chat id is reported as a configuration error instead of being silently re-routed.",
+      "Failure alerts use TELEGRAM_TOKEN_ALERTAS (or the first assistant bot) when set, otherwise the panel's Telegram.",
     ],
     check: "manual",
   },

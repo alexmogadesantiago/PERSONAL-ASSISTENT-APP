@@ -1,0 +1,407 @@
+{
+  "id": "0ikHqQCWMke67aoI",
+  "name": "Asistente - Noticias",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Asistente - Noticias (digest diario)\n\n**Que hace:** cada manana a las 08:00 lee Google News con las categorias del perfil, deduplica (30 dias), resume hasta 5 noticias con IA en el idioma y tono del perfil y envia un digest ordenado por prioridad.\n\n**Credenciales:** AC_SERVICE_TOKEN · AC_PROFILE_ID · TELEGRAM_NOTICIAS_TOKEN · TELEGRAM_CHAT_ID. No necesita OAuth.\n\n**Fiabilidad:** una respuesta de IA invalida descarta solo esa noticia; si fallan todas, se avisa via *Sistema - Gestor de errores*.",
+        "height": 320,
+        "width": 3000,
+        "color": 7
+      },
+      "id": "nota-descripcion",
+      "name": "Descripcion",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1260,
+        -220
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "trigger-manual",
+      "name": "Ejecutar ahora",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1200,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "triggerAtHour": 8,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "id": "trigger-schedule",
+      "name": "Cada mañana 08:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -1200,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Perfil desde PostgreSQL via /api/profiles/runtime. El feed de Google News\n// ya viene construido con las categorias y el idioma que eligio el usuario.\nconst p = $('Perfil (API)').first().json.profile || {};\nif (!p.feed_url) {\n  throw new Error('El perfil no tiene feed de noticias: elige categorias en el panel > Profiles.');\n}\nif (!p.feed_url) {\n  throw new Error('El perfil no tiene feed de noticias: elige categorias en el panel > Profiles.');\n}\nif (!p.feed_url) {\n  throw new Error('El perfil no tiene feed de noticias: elige categorias en el panel > Profiles.');\n}\nif (!p.feed_url) {\n  throw new Error('El perfil no tiene feed de noticias: elige categorias en el panel > Profiles.');\n}\nif (!p.feed_url) {\n  throw new Error('El perfil no tiene feed de noticias: elige categorias en el panel > Profiles.');\n}\nreturn [{ json: { profile: {\n  idioma: p.idioma || 'es',\n  feed_url: p.feed_url || '',\n  tono: p.tono || 'Claro, objetivo y sin adornos.',\n  max_palabras: p.max_palabras || 80,\n  categorias: Array.isArray(p.categorias) ? p.categorias : [],\n  ubicacion: p.location || '',\n} } }];\n"
+      },
+      "id": "cargar-perfil",
+      "name": "Cargar perfil",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.profile.feed_url }}",
+        "options": {}
+      },
+      "id": "rss-noticias",
+      "name": "RSS - Noticias",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.1,
+      "position": [
+        -240,
+        160
+      ],
+      "notes": "Google News RSS construido con las categorias e idioma del perfil.",
+      "notesInFlow": false,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const title = ($json.title || '').trim();\nconst link = $json.link || $json.guid || '';\nconst norm = title.toLowerCase()\n  .normalize('NFD').replace(/[\\u0300-\\u036f]/g, '')\n  .replace(/[^a-z0-9 ]/g, '').trim();\n\nreturn { json: {\n  title,\n  link,\n  item_key: 'news:' + norm,\n  source: 'news',\n  text: (title + ' ' + ($json.contentSnippet || $json.content || '')).slice(0, 2000),\n  isoDate: $json.isoDate || $json.pubDate || null,\n} };\n"
+      },
+      "id": "normalizar",
+      "name": "Normalizar noticia",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Deduplicación persistente entre ejecuciones usando los datos estáticos\n// del workflow (se guardan en la BD interna de n8n). Sin tabla externa.\nconst store = $getWorkflowStaticData('global');\nconst seen = store.newsSeen || {};\nconst now = Date.now();\nconst TTL = 30 * 24 * 60 * 60 * 1000; // 30 días\n\nfor (const k of Object.keys(seen)) {\n  if (now - seen[k] > TTL) delete seen[k];\n}\n\nconst out = [];\nfor (const item of $input.all()) {\n  const key = item.json.item_key;\n  if (!key || key === 'news:' || seen[key]) continue;\n  seen[key] = now;\n  out.push({ json: item.json, pairedItem: item.pairedItem });\n}\nstore.newsSeen = seen;\nreturn out;\n"
+      },
+      "id": "deduplicar",
+      "name": "Deduplicar noticias",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "maxItems": 5
+      },
+      "id": "limitar",
+      "name": "Máx. 5 por ejecución",
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        480,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Lee la respuesta del Automation Center (/api/ai/generate).\n// `data` ya viene parseado; `text` es el respaldo. Se acepta ademas el sobre\n// antiguo de Gemini para que una importacion a medias no falle en silencio.\nfunction leerIA(r) {\n  if (!r || r.error) return null;\n  if (r.data && typeof r.data === 'object') return r.data;\n  const crudo = typeof r.text === 'string'\n    ? r.text\n    : (r.candidates && r.candidates[0] && r.candidates[0].content\n       && r.candidates[0].content.parts && r.candidates[0].content.parts[0]\n       && r.candidates[0].content.parts[0].text);\n  if (!crudo) return null;\n  return JSON.parse(String(crudo).replace(/^\\s*```(?:json)?/i, '').replace(/```\\s*$/, ''));\n}\n\nconst esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\n\n// Una noticia cuya respuesta de IA no sirve se marca y se descarta en el\n// digest: una sola respuesta mala no debe tumbar el resumen de las demas.\nlet data = null;\ntry { data = leerIA($json); } catch (e) { data = null; }\nlet enlace = '';\ntry { enlace = $('Normalizar noticia').item.json.link || ''; } catch (e) { enlace = ''; }\nif (!data || !data.titulo || !data.resumen) {\n  return { json: { __invalida: true, enlace, motivo: $json.error ? 'IA no disponible' : 'JSON de la IA incompleto' } };\n}\nreturn { json: {\n  titulo: esc(data.titulo),\n  resumen: esc(data.resumen),\n  relevancia: String(data.relevancia || '').toLowerCase(),\n  prioridad: Number(data.prioridad) || 3,\n  enlace,\n} };\n"
+      },
+      "id": "validar",
+      "name": "Validar JSON IA",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ (($env.AC_API_URL || '').match(/^https?:\\/\\//) ? ($env.AC_API_URL || '') : 'https://' + ($env.AC_API_URL || '')).replace(/\\/+$/, '') }}/api/ai/generate",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-AC-Service-Token",
+              "value": "={{ $env.AC_SERVICE_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"prompt\": {{ JSON.stringify(\n    \"Resume esta noticia en un maximo de \" + $('Cargar perfil').first().json.profile.max_palabras +\n    \" palabras, en el idioma de codigo '\" + $('Cargar perfil').first().json.profile.idioma + \"'. \" +\n    \"Tono: \" + $('Cargar perfil').first().json.profile.tono + \" No inventes datos que no esten en el texto. \" +\n    \"relevancia: alta|media|baja; prioridad: 1 (maxima) a 5.\\n\\nTitulo: \" + $json.title +\n    \"\\nEnlace: \" + $json.link + \"\\nContenido: \" + $json.text\n  ) }},\n  \"json_schema\": {\n    \"type\": \"object\",\n    \"properties\": {\n      \"titulo\": { \"type\": \"string\" },\n      \"resumen\": { \"type\": \"string\" },\n      \"relevancia\": { \"type\": \"string\" },\n      \"prioridad\": { \"type\": \"integer\" }\n    },\n    \"required\": [\"titulo\", \"resumen\", \"relevancia\", \"prioridad\"]\n  },\n  \"temperature\": 0.3\n}",
+        "options": {
+          "timeout": 60000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 3000
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        720,
+        160
+      ],
+      "id": "ia-resumen",
+      "name": "IA - Resumir noticia",
+      "onError": "continueRegularOutput",
+      "notes": "IA via Automation Center (/api/ai/generate): proveedor, modelo y respaldo se eligen en el panel. Un fallo descarta solo este elemento.",
+      "notesInFlow": false
+    },
+    {
+      "parameters": {
+        "jsCode": "const todas = $input.all().map((i) => i.json);\nconst items = todas.filter((n) => !n.__invalida)\n  .sort((a, b) => (a.prioridad || 3) - (b.prioridad || 3));\nif (items.length === 0) {\n  if (todas.length === 0) return [];\n  // Habia noticias pero ninguna se pudo resumir: que lo avise el Error workflow.\n  throw new Error('Ninguna de las ' + todas.length + ' noticias se pudo resumir: ' + (todas[0].motivo || 'IA no disponible'));\n}\nconst esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\n// Telegram rechaza mensajes de mas de 4096 caracteres. Se parte por bloques\n// completos (nunca a mitad de una etiqueta HTML) y se numeran las partes.\nfunction trocear(cabecera, bloques, pie, max = 3900) {\n  const SEP = '\\n\\n━━━━━━━━━━\\n\\n';\n  const partes = [];\n  let actual = cabecera;\n  let primero = true;\n  for (const b of bloques) {\n    const candidato = primero ? actual + b : actual + SEP + b;\n    if (!primero && candidato.length > max) { partes.push(actual); actual = b; }\n    else actual = candidato;\n    primero = false;\n  }\n  if ((actual + pie).length > max) { partes.push(actual); actual = pie.trim(); }\n  else actual += pie;\n  partes.push(actual);\n  return partes.map((texto, i) => ({ json: {\n    texto: partes.length > 1 ? texto + '\\n<i>(' + (i + 1) + '/' + partes.length + ')</i>' : texto,\n  } }));\n}\nconst fecha = new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });\nconst icono = { alta: '🔥', media: '📌', baja: '📎' };\n\nconst bloques = items.map((n, i) =>\n  `${icono[n.relevancia] || '📰'} <b>${i + 1}. ${n.titulo}</b>\\n${n.resumen}` +\n  (n.enlace ? `\\n<a href=\"${esc(n.enlace)}\">🔗 Leer noticia</a>` : '')\n);\nconst omitidas = todas.length - items.length;\nreturn trocear(\n  `📰 <b>TUS NOTICIAS</b>\\n<i>${fecha}</i>\\n\\n━━━━━━━━━━\\n\\n`,\n  bloques,\n  `\\n\\n━━━━━━━━━━\\n<i>${items.length} noticia(s)${omitidas ? ' · ' + omitidas + ' sin resumen' : ''}</i>`,\n);\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        160
+      ],
+      "id": "9f1b9968-5b6f-464c-99cc-40b7d593d414",
+      "name": "Construir digest"
+    },
+    {
+      "parameters": {
+        "url": "={{ (($env.AC_API_URL || '').match(/^https?:\\/\\//) ? ($env.AC_API_URL || '') : 'https://' + ($env.AC_API_URL || '')).replace(/\\/+$/, '') }}/api/profiles/runtime?profile_id={{ $env.AC_PROFILE_ID }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-AC-Service-Token",
+              "value": "={{ $env.AC_SERVICE_TOKEN }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "perfil-api-node",
+      "name": "Perfil (API)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -720,
+        160
+      ],
+      "notes": "Perfil del usuario desde Postgres (/api/profiles/runtime). Requiere AC_SERVICE_TOKEN y AC_PROFILE_ID.",
+      "notesInFlow": false,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "jsCode": "// Falla pronto, con un mensaje que dice QUE falta y DONDE se pone, en vez\n// de un 401 o un \"chat not found\" tres nodos mas tarde. El Error workflow\n// (\"Sistema - Gestor de errores\") convierte este error en un aviso.\nconst requeridas = {\n  AC_API_URL: 'URL del backend; la pone el instalador',\n  AC_SERVICE_TOKEN: 'panel > AI > Automation token',\n  AC_PROFILE_ID: 'launcher > Ajustes > ID del perfil activo',\n  TELEGRAM_CHAT_ID: 'launcher > Ajustes > Chat ID de Telegram',\n  TELEGRAM_NOTICIAS_TOKEN: 'launcher > Ajustes > Bot Noticias',\n};\nconst vacia = (v) => !String(v || '').trim() || /^PEGA_AQUI/i.test(String(v).trim());\nconst faltan = Object.entries(requeridas).filter(([k]) => vacia($env[k]));\nif (faltan.length) {\n  throw new Error('Configuracion incompleta: ' +\n    faltan.map(([k, donde]) => k + ' (' + donde + ')').join('; '));\n}\nreturn $input.all();\n"
+      },
+      "id": "comprobar-config",
+      "name": "Comprobar configuracion",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -960,
+        160
+      ],
+      "notes": "Valida las variables de entorno que este workflow necesita antes de llamar a nada.",
+      "notesInFlow": false
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_NOTICIAS_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  chat_id: $env.TELEGRAM_CHAT_ID,\n  text: $json.texto,\n  parse_mode: \"HTML\",\n  disable_web_page_preview: true\n}) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "telegram",
+      "name": "Telegram - Enviar noticias",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        1440,
+        160
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "notes": "Envia el digest con el bot de Noticias (TELEGRAM_NOTICIAS_TOKEN).",
+      "notesInFlow": false
+    }
+  ],
+  "connections": {
+    "Ejecutar ahora": {
+      "main": [
+        [
+          {
+            "node": "Comprobar configuracion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cada mañana 08:00": {
+      "main": [
+        [
+          {
+            "node": "Comprobar configuracion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cargar perfil": {
+      "main": [
+        [
+          {
+            "node": "RSS - Noticias",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RSS - Noticias": {
+      "main": [
+        [
+          {
+            "node": "Normalizar noticia",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar noticia": {
+      "main": [
+        [
+          {
+            "node": "Deduplicar noticias",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deduplicar noticias": {
+      "main": [
+        [
+          {
+            "node": "Máx. 5 por ejecución",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Máx. 5 por ejecución": {
+      "main": [
+        [
+          {
+            "node": "IA - Resumir noticia",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Construir digest": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Enviar noticias",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IA - Resumir noticia": {
+      "main": [
+        [
+          {
+            "node": "Validar JSON IA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar JSON IA": {
+      "main": [
+        [
+          {
+            "node": "Construir digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Perfil (API)": {
+      "main": [
+        [
+          {
+            "node": "Cargar perfil",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Comprobar configuracion": {
+      "main": [
+        [
+          {
+            "node": "Perfil (API)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveExecutionProgress": false,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "pa00errorhandler"
+  },
+  "active": false,
+  "versionId": "a1b2c3d4-0003-4000-8000-000000000100",
+  "meta": {}
+}

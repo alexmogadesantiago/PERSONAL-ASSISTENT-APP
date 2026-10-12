@@ -64,7 +64,9 @@ async def run_test(provider: str, ctype: CredentialType, secret: dict, meta: dic
         )
     if provider in ("telegram", "telegram_bot"):
         token = secret.get("token") or key
-        return await _get(f"https://api.telegram.org/bot{token}/getMe")
+        from app.config import get_settings
+
+        return await _get(f"{get_settings().telegram_api_url}/bot{token}/getMe")
 
     # Generic path: caller supplied a URL in meta -> apply the credential and GET.
     test_url = meta.get("test_url")

@@ -317,3 +317,37 @@ def test_a_bad_bot_token_is_refused_with_a_human_message(client, fake):
     assert r.status_code == 401 and "BotFather" in r.json()["detail"]
     r = client.post("/api/integrations/telegram/token", headers=auth(token), json={"bot_token": "not a token at all"})
     assert r.status_code == 400
+
+
+# ------------------------------------------- self-hosted Telegram Bot API ---
+
+def test_telegram_api_url_is_validated_and_normalised():
+    from app.config import Settings
+
+    assert Settings(telegram_api_url="").telegram_api_url == "https://api.telegram.org"
+    assert Settings(telegram_api_url=" http://bot-api:8081/ ").telegram_api_url == "http://bot-api:8081"
+    with pytest.raises(ValueError):
+        Settings(telegram_api_url="bot-api:8081")
+
+
+def test_the_hub_talks_to_a_self_hosted_bot_api_when_configured(monkeypatch):
+    import anyio
+
+    import app.config as app_config
+    from app.config import Settings
+    from app.services.integrations import telegram as tg
+
+    seen: list[str] = []
+
+    def bot_api(req: httpx.Request) -> httpx.Response:
+        seen.append(f"{req.url.scheme}://{req.url.host}:{req.url.port}{req.url.path.rsplit('/', 1)[0][:4]}")
+        return httpx.Response(200, json={"ok": True, "result": {"id": 1, "username": "self_hosted_bot"}})
+
+    monkeypatch.setattr(app_config, "get_settings", lambda: Settings(telegram_api_url="http://bot-api:8081"))
+    int_http.set_transport(httpx.MockTransport(bot_api))
+    try:
+        me = anyio.run(tg._call, "123456789:" + "A" * 35, "getMe")
+    finally:
+        int_http.set_transport(None)
+    assert me["username"] == "self_hosted_bot"
+    assert seen == ["http://bot-api:8081/bot"], "the request went to the configured server, not api.telegram.org"

@@ -4,8 +4,8 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Asistente - Laboral (ofertas de empleo)\n\n**Que hace:** cada manana a las 07:30 busca ofertas con el scraper interno, filtra por el perfil, deduplica (21 dias), puntua de 0 a 100, resume las 3 mejores con IA y las envia por Telegram.\n\n**Credenciales:** AC_SERVICE_TOKEN · AC_PROFILE_ID · TELEGRAM_TOKEN_LABORAL · TELEGRAM_CHAT_ID. No necesita OAuth.\n\n**Fiabilidad:** la puntuacion es determinista (la IA solo explica el encaje), si la IA falla la oferta se envia igual, y los fallos los notifica *Sistema - Gestor de errores*.",
-        "height": 320,
+        "content": "## Asistente - Laboral (ofertas de empleo)\n\n**Que hace:** cada manana a las 07:30 busca ofertas con el scraper interno, filtra por el perfil, deduplica (21 dias), puntua de 0 a 100, resume las 3 mejores con IA y las envia por Telegram.\n\n**Credenciales:** AC_SERVICE_TOKEN · AC_PROFILE_ID. No necesita OAuth.\n\n**Telegram:** el que conectas en el panel (Integraciones > Telegram). Opcional: un bot propio con TELEGRAM_TOKEN_LABORAL + TELEGRAM_CHAT_ID en el launcher, que entonces tiene prioridad.\n\n**Fiabilidad:** la puntuacion es determinista (la IA solo explica el encaje), si la IA falla la oferta se envia igual, y los fallos los notifica *Sistema - Gestor de errores*.",
+        "height": 380,
         "width": 3720,
         "color": 7
       },
@@ -103,7 +103,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Filtro guiado por el PERFIL: mantiene ofertas cuyo título/empresa encaja\n// con los términos derivados de sector_interes + formacion del usuario.\n// EXCLUDE es fijo (basura que nunca interesa).\nconst prof = $('Cargar perfil').first().json.profile;\nconst INCLUDE = (prof.include_terms && prof.include_terms.length)\n  ? prof.include_terms\n  : ['engineer', 'analyst', 'developer', 'software', 'data', 'operations', 'project', 'consultant'];\nconst EXCLUDE = ['sales representative', 'account executive', 'call center', 'teleoperador', 'camarero',\n  'waiter', 'kitchen', 'limpieza', 'cleaner', 'conductor', 'repartidor', 'mozo de almacen',\n  'beca no remunerada', 'unpaid', 'comercial telefonico'];\nconst noAcc = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g, '');\n\nconst pass = [];\nfor (const item of $input.all()) {\n  const j = item.json;\n  if (j.__sinOfertas) { pass.push({ json: j }); continue; }\n  const hay = noAcc((j.title || '') + ' ' + (j.company || '') + ' ' + (j.descriptionSnippet || ''));\n  if (EXCLUDE.some((w) => hay.includes(w))) continue;\n  const matched = INCLUDE.filter((w) => hay.includes(w));\n  if (matched.length === 0) continue;\n  pass.push({ json: { ...j, __matched: matched.slice(0, 6) }, pairedItem: item.pairedItem });\n}\nreturn pass;\n"
+        "jsCode": "// Filtro guiado por el PERFIL: mantiene ofertas cuyo título/empresa encaja\n// con los términos derivados de sector_interes + formacion del usuario.\n// EXCLUDE es fijo (basura que nunca interesa).\nconst prof = $('Cargar perfil').first().json.profile;\nconst INCLUDE = (prof.include_terms && prof.include_terms.length)\n  ? prof.include_terms\n  : ['engineer', 'analyst', 'developer', 'software', 'data', 'operations', 'project', 'consultant'];\nconst EXCLUDE = ['sales representative', 'account executive', 'call center', 'teleoperador', 'camarero',\n  'waiter', 'kitchen', 'limpieza', 'cleaner', 'conductor', 'repartidor', 'mozo de almacen',\n  'beca no remunerada', 'unpaid', 'comercial telefonico'];\nconst noAcc = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g, '');\n\nconst pass = [];\nfor (const item of $input.all()) {\n  const j = item.json;\n  if (j.__sinOfertas) { pass.push({ json: j }); continue; }\n  const hay = noAcc((j.title || '') + ' ' + (j.company || '') + ' ' + (j.descriptionSnippet || ''));\n  if (EXCLUDE.some((w) => hay.includes(w))) continue;\n  const matched = INCLUDE.filter((w) => hay.includes(w));\n  if (matched.length === 0) continue;\n  pass.push({ json: { ...j, __matched: matched.slice(0, 6) }, pairedItem: item.pairedItem });\n}\n// Cero items pararia el workflow sin avisar: se convierte en un \"sin ofertas\"\n// explicito para que el usuario reciba igualmente el mensaje del dia.\nif (pass.length === 0) {\n  return [{ json: { __sinOfertas: true, motivo: 'ninguna de las ' + $input.all().length +\n    ' ofertas encajó con tu perfil (' + INCLUDE.slice(0, 5).join(', ') + ')' } }];\n}\nreturn pass;\n"
       },
       "id": "filtrar",
       "name": "Filtrar por perfil",
@@ -116,7 +116,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const store = $getWorkflowStaticData('global');\nconst seen = store.jobsSeen || {};\nconst now = Date.now();\nconst TTL = 21 * 24 * 60 * 60 * 1000;\nfor (const k of Object.keys(seen)) { if (now - seen[k] > TTL) delete seen[k]; }\n\nconst out = [];\nfor (const item of $input.all()) {\n  const j = item.json;\n  if (j.__sinOfertas) { out.push({ json: j }); continue; }\n  const key = (j.link || (j.title + '|' + j.company)).toLowerCase().trim();\n  if (!key || seen[key]) continue;\n  seen[key] = now;\n  out.push({ json: j, pairedItem: item.pairedItem });\n}\nstore.jobsSeen = seen;\nreturn out;\n"
+        "jsCode": "const store = $getWorkflowStaticData('global');\nconst seen = store.jobsSeen || {};\nconst now = Date.now();\nconst TTL = 21 * 24 * 60 * 60 * 1000;\nfor (const k of Object.keys(seen)) { if (now - seen[k] > TTL) delete seen[k]; }\n\nconst out = [];\nfor (const item of $input.all()) {\n  const j = item.json;\n  if (j.__sinOfertas) { out.push({ json: j }); continue; }\n  const key = (j.link || (j.title + '|' + j.company)).toLowerCase().trim();\n  if (!key || seen[key]) continue;\n  seen[key] = now;\n  out.push({ json: j, pairedItem: item.pairedItem });\n}\nstore.jobsSeen = seen;\nif (out.length === 0) {\n  return [{ json: { __sinOfertas: true, motivo: 'todas las ofertas ya se enviaron en los últimos 21 días' } }];\n}\nreturn out;\n"
       },
       "id": "deduplicar",
       "name": "Deduplicar ofertas",
@@ -142,7 +142,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const MIN_SCORE = 15;\nconst MAX = 3;\nconst rows = $input.all().map((i) => i.json).filter((j) => !j.__sinOfertas);\nconst top = rows\n  .filter((j) => (j.score || 0) >= MIN_SCORE)\n  .sort((a, b) => (b.score || 0) - (a.score || 0))\n  .slice(0, MAX);\nif (top.length === 0) {\n  return [{ json: { __sinOfertas: true, motivo: 'ninguna oferta nueva superó el umbral de relevancia', evaluadas: rows.length } }];\n}\nreturn top.map((j) => ({ json: j }));\n"
+        "jsCode": "const MIN_SCORE = 15;\nconst MAX = 3;\nconst rows = $input.all().map((i) => i.json).filter((j) => !j.__sinOfertas);\nconst top = rows\n  .filter((j) => (j.score || 0) >= MIN_SCORE)\n  .sort((a, b) => (b.score || 0) - (a.score || 0))\n  .slice(0, MAX);\nif (top.length === 0) {\n  // Si un paso anterior ya explico por que no hay ofertas, se conserva su motivo.\n  const previo = $input.all().map((i) => i.json).find((j) => j.__sinOfertas && j.motivo);\n  if (rows.length === 0 && previo) return [{ json: previo }];\n  return [{ json: { __sinOfertas: true, motivo: 'ninguna oferta nueva superó el umbral de relevancia', evaluadas: rows.length } }];\n}\nreturn top.map((j) => ({ json: j }));\n"
       },
       "id": "top3",
       "name": "Seleccionar TOP 3",
@@ -203,8 +203,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.3,
       "position": [
-        1440,
-        -40
+        1700,
+        -150
       ],
       "retryOnFail": true,
       "maxTries": 3,
@@ -292,8 +292,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.3,
       "position": [
-        2160,
-        360
+        2420,
+        250
       ],
       "retryOnFail": true,
       "maxTries": 3,
@@ -333,7 +333,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Falla pronto, con un mensaje que dice QUE falta y DONDE se pone, en vez\n// de un 401 o un \"chat not found\" tres nodos mas tarde. El Error workflow\n// (\"Sistema - Gestor de errores\") convierte este error en un aviso.\nconst requeridas = {\n  AC_API_URL: 'URL del backend; la pone el instalador',\n  AC_SERVICE_TOKEN: 'panel > AI > Automation token',\n  AC_PROFILE_ID: 'launcher > Ajustes > ID del perfil activo',\n  PLAYWRIGHT_BASE_URL: 'servicio playwright; lo fija docker-compose',\n  TELEGRAM_CHAT_ID: 'launcher > Ajustes > Chat ID de Telegram',\n  TELEGRAM_TOKEN_LABORAL: 'launcher > Ajustes > Bot Laboral',\n};\nconst vacia = (v) => !String(v || '').trim() || /^PEGA_AQUI/i.test(String(v).trim());\nconst faltan = Object.entries(requeridas).filter(([k]) => vacia($env[k]));\nif (faltan.length) {\n  throw new Error('Configuracion incompleta: ' +\n    faltan.map(([k, donde]) => k + ' (' + donde + ')').join('; '));\n}\nreturn $input.all();\n"
+        "jsCode": "// Falla pronto, con un mensaje que dice QUE falta y DONDE se pone, en vez\n// de un 401 o un \"chat not found\" tres nodos mas tarde. El Error workflow\n// (\"Sistema - Gestor de errores\") convierte este error en un aviso.\nconst requeridas = {\n  AC_API_URL: 'URL del backend; la pone el instalador',\n  AC_SERVICE_TOKEN: 'panel > AI > Automation token',\n  AC_PROFILE_ID: 'launcher > Ajustes > ID del perfil activo',\n  PLAYWRIGHT_BASE_URL: 'servicio playwright; lo fija docker-compose',\n};\nconst vacia = (v) => !String(v || '').trim() || /^PEGA_AQUI/i.test(String(v).trim());\nconst faltan = Object.entries(requeridas).filter(([k]) => vacia($env[k]));\n// Telegram: el bot propio del launcher es OPCIONAL. Sin token, el aviso sale\n// por el Telegram conectado en el panel (Integraciones > Telegram). Lo que no\n// vale es un bot a medias: con token hace falta el chat id, y el token tiene\n// que tener forma de token (si no, se iria al panel sin que nadie lo sepa).\nconst tokenBot = \"TELEGRAM_TOKEN_LABORAL\";\nif (!vacia($env[tokenBot])) {\n  if (!/^\\d+:[\\w-]+$/.test(String($env[tokenBot]).trim())) {\n    faltan.push([tokenBot, 'no parece un token de @BotFather (123456:AA...); corrigelo o borralo para usar el Telegram del panel']);\n  }\n  if (!/^-?\\d+$/.test(String($env.TELEGRAM_CHAT_ID || '').trim())) {\n    faltan.push(['TELEGRAM_CHAT_ID', 'launcher > Ajustes > Chat ID de Telegram; lo necesita el bot propio, o borra ' + tokenBot + ' para usar el Telegram del panel']);\n  }\n}\nif (faltan.length) {\n  throw new Error('Configuracion incompleta: ' +\n    faltan.map(([k, donde]) => k + ' (' + donde + ')').join('; '));\n}\nreturn $input.all();\n"
       },
       "id": "comprobar-config",
       "name": "Comprobar configuracion",
@@ -343,8 +343,148 @@
         -960,
         160
       ],
-      "notes": "Valida las variables de entorno que este workflow necesita antes de llamar a nada.",
+      "notes": "Valida las variables de entorno que este workflow necesita antes de llamar a nada. El bot de Telegram del launcher es opcional.",
       "notesInFlow": false
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ /^\\d+:[\\w-]+$/.test(String($env.TELEGRAM_TOKEN_LABORAL || '').trim()) && /^-?\\d+$/.test(String($env.TELEGRAM_CHAT_ID || '').trim()) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1440,
+        -40
+      ],
+      "id": "tg-route-sin-ofertas",
+      "name": "¿Bot del launcher? (sin ofertas)",
+      "notes": "Si: bot propio del launcher (TELEGRAM_TOKEN_LABORAL + TELEGRAM_CHAT_ID). No: el Telegram conectado en el panel.",
+      "notesInFlow": false
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ (($env.AC_API_URL || '').match(/^https?:\\/\\//) ? ($env.AC_API_URL || '') : 'https://' + ($env.AC_API_URL || '')).replace(/\\/+$/, '') }}/api/automations/notify",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-AC-Service-Token",
+              "value": "={{ $env.AC_SERVICE_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  text: \"🔍 <b>Búsqueda laboral</b>\\n\\nℹ️ Hoy no hay ofertas nuevas relevantes (\" + ($json.motivo || 'sin resultados') + \").\",\n  parse_mode: \"HTML\",\n  source: \"Asistente - Laboral\",\n  profile_id: $env.AC_PROFILE_ID || \"\"\n}) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        1700,
+        70
+      ],
+      "id": "tg-panel-sin-ofertas",
+      "name": "Telegram (panel) - Sin ofertas",
+      "notes": "Sin bot propio en el launcher: envia por el Telegram conectado en el panel (Integraciones > Telegram) a traves de /api/automations/notify.",
+      "notesInFlow": false,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ /^\\d+:[\\w-]+$/.test(String($env.TELEGRAM_TOKEN_LABORAL || '').trim()) && /^-?\\d+$/.test(String($env.TELEGRAM_CHAT_ID || '').trim()) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2160,
+        360
+      ],
+      "id": "tg-route-ofertas",
+      "name": "¿Bot del launcher? (enviar ofertas)",
+      "notes": "Si: bot propio del launcher (TELEGRAM_TOKEN_LABORAL + TELEGRAM_CHAT_ID). No: el Telegram conectado en el panel.",
+      "notesInFlow": false
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ (($env.AC_API_URL || '').match(/^https?:\\/\\//) ? ($env.AC_API_URL || '') : 'https://' + ($env.AC_API_URL || '')).replace(/\\/+$/, '') }}/api/automations/notify",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-AC-Service-Token",
+              "value": "={{ $env.AC_SERVICE_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  text: $json.texto,\n  parse_mode: \"HTML\",\n  source: \"Asistente - Laboral\",\n  profile_id: $env.AC_PROFILE_ID || \"\"\n}) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        2420,
+        470
+      ],
+      "id": "tg-panel-ofertas",
+      "name": "Telegram (panel) - Enviar ofertas",
+      "notes": "Sin bot propio en el launcher: envia por el Telegram conectado en el panel (Integraciones > Telegram) a traves de /api/automations/notify.",
+      "notesInFlow": false,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
     }
   ],
   "connections": {
@@ -451,7 +591,7 @@
       "main": [
         [
           {
-            "node": "Telegram - Sin ofertas",
+            "node": "¿Bot del launcher? (sin ofertas)",
             "type": "main",
             "index": 0
           }
@@ -480,7 +620,7 @@
       "main": [
         [
           {
-            "node": "Telegram - Enviar ofertas",
+            "node": "¿Bot del launcher? (enviar ofertas)",
             "type": "main",
             "index": 0
           }
@@ -519,6 +659,42 @@
           }
         ]
       ]
+    },
+    "¿Bot del launcher? (sin ofertas)": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Sin ofertas",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Telegram (panel) - Sin ofertas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Bot del launcher? (enviar ofertas)": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Enviar ofertas",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Telegram (panel) - Enviar ofertas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "settings": {
@@ -531,6 +707,6 @@
     "errorWorkflow": "pa00errorhandler"
   },
   "active": false,
-  "versionId": "a1b2c3d4-0002-4000-8000-000000000100",
+  "versionId": "00dc3397-ccb8-489c-8395-5c7c8c79cb8f",
   "meta": {}
 }

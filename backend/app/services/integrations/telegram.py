@@ -23,7 +23,6 @@ from app.services.integrations import connections as conns
 from app.services.integrations import http
 from app.services.integrations.providers import TELEGRAM
 
-API = "https://api.telegram.org"
 TOKEN_RE = re.compile(r"^\d{5,15}:[A-Za-z0-9_-]{30,}$")
 
 
@@ -34,10 +33,18 @@ class TelegramError(Exception):
         self.status_code = status_code
 
 
+def api_base() -> str:
+    """The Bot API base URL: hosted by default, or a self-hosted Bot API server
+    (AC_TELEGRAM_API_URL)."""
+    from app.config import get_settings
+
+    return get_settings().telegram_api_url
+
+
 async def _call(token: str, method: str, **params) -> dict:
     try:
         async with http.client() as c:
-            r = await c.post(f"{API}/bot{token}/{method}", json=params)
+            r = await c.post(f"{api_base()}/bot{token}/{method}", json=params)
     except httpx.HTTPError as exc:
         raise TelegramError(f"Could not reach Telegram ({type(exc).__name__}).", 502)
     try:

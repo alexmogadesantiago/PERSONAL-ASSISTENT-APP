@@ -9,6 +9,7 @@ import {
   useN8nHealth,
   useProfileCompleteness,
 } from "@/hooks/queries";
+import { useIntegration } from "@/hooks/platform";
 import {
   AUTOMATION_LABELS,
   CREDENTIAL_REQUIREMENTS,
@@ -50,6 +51,7 @@ export function useRequirementStatuses(): Record<RequirementCheck, RequirementSt
   const ai = useAiConfig();
   const n8n = useN8nHealth();
   const profile = useProfileCompleteness();
+  const telegram = useIntegration("telegram");
 
   const aiStatus: RequirementStatus = ai.isLoading
     ? { state: "checking", detail: "" }
@@ -89,11 +91,25 @@ export function useRequirementStatuses(): Record<RequirementCheck, RequirementSt
         }
       : { state: "missing", detail: profile.data?.detail || "No complete profile yet." };
 
+  const chat = telegram.data?.connection?.telegram?.chat;
+  const telegramStatus: RequirementStatus = telegram.isLoading
+    ? { state: "checking", detail: "" }
+    : telegram.isError
+      ? { state: "invalid", detail: "Could not read the Telegram connection." }
+      : !telegram.data?.connected
+        ? { state: "missing", detail: "Not connected: assistants without their own launcher bot cannot message you." }
+        : !chat
+          ? { state: "missing", detail: "Bot connected. Press Start in Telegram to link your chat." }
+          : telegram.data.status === "healthy"
+            ? { state: "ready", detail: `Linked to ${chat.title || "your chat"}.` }
+            : { state: "invalid", detail: telegram.data.connection?.health_detail || "The last message could not be delivered." };
+
   return {
     ai: aiStatus,
     service_token: tokenStatus,
     n8n: n8nStatus,
     profile: profileStatus,
+    telegram: telegramStatus,
     manual: {
       state: "manual",
       detail: "Stored outside the panel (n8n environment or n8n credentials) - check the last run in Executions.",

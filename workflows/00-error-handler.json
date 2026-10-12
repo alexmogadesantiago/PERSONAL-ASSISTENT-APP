@@ -4,8 +4,8 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Sistema - Gestor de errores\n\n**Que hace:** es el *Error workflow* de los cuatro asistentes (Settings > Error workflow). Cuando cualquiera falla: registra el fallo en la actividad del panel y avisa por Telegram con el nodo, el error y un enlace a la ejecucion. El mismo fallo se avisa como mucho una vez por hora.\n\n**No hace falta activarlo:** n8n lo ejecuta solo cuando otro workflow falla.\n\n**Credenciales:** AC_SERVICE_TOKEN · TELEGRAM_CHAT_ID · TELEGRAM_TOKEN_ALERTAS (opcional; si no, usa el primer bot configurado).",
-        "height": 320,
+        "content": "## Sistema - Gestor de errores\n\n**Que hace:** es el *Error workflow* de los cuatro asistentes (Settings > Error workflow). Cuando cualquiera falla: registra el fallo en la actividad del panel y avisa por Telegram con el nodo, el error y un enlace a la ejecucion. El mismo fallo se avisa como mucho una vez por hora.\n\n**No hace falta activarlo:** n8n lo ejecuta solo cuando otro workflow falla.\n\n**Credenciales:** AC_SERVICE_TOKEN.\n\n**Telegram:** el que conectas en el panel (Integraciones > Telegram). Opcional: un bot propio en el launcher (TELEGRAM_TOKEN_ALERTAS, o el primero de los cuatro asistentes) + TELEGRAM_CHAT_ID, que entonces tiene prioridad.",
+        "height": 380,
         "width": 1080,
         "color": 7
       },
@@ -85,7 +85,7 @@
           "conditions": [
             {
               "id": "c1",
-              "leftValue": "={{ $json.notificar === true && $json.telegram_listo === true }}",
+              "leftValue": "={{ $json.notificar === true }}",
               "rightValue": "",
               "operator": {
                 "type": "boolean",
@@ -105,7 +105,9 @@
       "position": [
         -720,
         460
-      ]
+      ],
+      "notes": "Anti-spam: el mismo fallo se avisa como mucho una vez por hora.",
+      "notesInFlow": false
     },
     {
       "parameters": {
@@ -123,10 +125,78 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.3,
       "position": [
-        -480,
-        260
+        -220,
+        350
       ],
       "notes": "Usa TELEGRAM_TOKEN_ALERTAS si existe; si no, el primer bot configurado.",
+      "notesInFlow": false,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.telegram_listo === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -480,
+        460
+      ],
+      "id": "tg-route-alerta",
+      "name": "¿Bot del launcher?",
+      "notes": "Si: un bot propio del launcher. No: el Telegram conectado en el panel.",
+      "notesInFlow": false
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ (($env.AC_API_URL || '').match(/^https?:\\/\\//) ? ($env.AC_API_URL || '') : 'https://' + ($env.AC_API_URL || '')).replace(/\\/+$/, '') }}/api/automations/notify",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-AC-Service-Token",
+              "value": "={{ $env.AC_SERVICE_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  text: $json.texto,\n  parse_mode: \"HTML\",\n  source: \"Sistema - Gestor de errores\",\n  profile_id: $env.AC_PROFILE_ID || \"\"\n}) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -220,
+        570
+      ],
+      "id": "tg-panel-alerta",
+      "name": "Telegram (panel) - Alerta",
+      "notes": "Sin bot propio en el launcher: envia por el Telegram conectado en el panel (Integraciones > Telegram) a traves de /api/automations/notify.",
       "notesInFlow": false,
       "onError": "continueRegularOutput"
     }
@@ -163,12 +233,30 @@
       "main": [
         [
           {
-            "node": "Telegram - Alerta",
+            "node": "¿Bot del launcher?",
             "type": "main",
             "index": 0
           }
         ],
         []
+      ]
+    },
+    "¿Bot del launcher?": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Alerta",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Telegram (panel) - Alerta",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     }
   },
@@ -182,5 +270,5 @@
     "saveExecutionProgress": false,
     "callerPolicy": "workflowsFromSameOwner"
   },
-  "versionId": "a1b2c3d4-0000-4000-8000-000000000100"
+  "versionId": "270ade77-9684-414d-b756-a399115f726d"
 }

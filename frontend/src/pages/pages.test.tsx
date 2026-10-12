@@ -15,6 +15,7 @@ import { ProfilesPage } from "./ProfilesPage";
 import { CredentialsPage } from "./CredentialsPage";
 import { IntegrationsPage } from "./IntegrationsPage";
 import { InboxPage } from "./InboxPage";
+import { RequiredCredentials } from "./credentials/RequiredCredentials";
 import { makeQueryClient, installFetchStub, sampleUser, sampleToken } from "@/test/utils";
 import { setSession } from "@/api/tokenStore";
 
@@ -247,6 +248,31 @@ describe("empty states", () => {
     });
     wrap(<CredentialsPage />);
     expect(await screen.findByText(/credential store is not configured/i)).toBeInTheDocument();
+  });
+
+  it("Required credentials: the panel's Telegram is verified live, the launcher bots are optional", async () => {
+    setSession({ ...sampleToken(), expires_at: Date.now() + 60_000 });
+    const telegram = (connected: boolean) => ({
+      key: "telegram", label: "Telegram", tagline: "", description: "", auth: "bot_token", docs_url: "", console_url: "",
+      default_services: [], services: [], used_by: [], status: connected ? "healthy" : "not_connected", connected,
+      setup: { available: true, source: "user", redirect_uri: null },
+      connection: connected
+        ? { id: "t1", health: "healthy", health_detail: "", account: {}, services: ["messages"], requested_services: [], permissions: [],
+            connected_at: null, last_sync_at: null, last_refresh_at: null, last_tested_at: null, last_test: null, token_expires_at: null,
+            security: { method: "Bot token", encrypted_at_rest: true, refresh: false, secret_hint: "…AAAA" },
+            telegram: { bot: { username: "pa_bot" }, chat: { id: 777, title: "Alex", type: "private" }, link_url: null } }
+        : null,
+    });
+    installFetchStub({ "GET /api/integrations/telegram": { body: telegram(true) } });
+    const { unmount } = wrap(<RequiredCredentials />);
+    expect(await screen.findByText("Linked to Alex.")).toBeInTheDocument();
+    expect(screen.getByText("Own bot per assistant").textContent).toContain("(optional)");
+    expect(screen.queryByText(/Telegram chat id/i)).not.toBeInTheDocument();
+    unmount();
+
+    installFetchStub({ "GET /api/integrations/telegram": { body: telegram(false) } });
+    wrap(<RequiredCredentials />);
+    expect(await screen.findByText(/Not connected: assistants without their own launcher bot/)).toBeInTheDocument();
   });
 
   it("Integrations hub shows each pillar with its state and never a secret", async () => {

@@ -188,6 +188,12 @@ class Settings(BaseSettings):
     # Kept so an existing .env with this key still loads.
     profile_base_url: str = ""
 
+    # --- Telegram ---
+    # Bot API base URL. The hosted one by default; a self-hosted Bot API
+    # server (github.com/tdlib/telegram-bot-api) answers the same contract on
+    # its own host, e.g. http://telegram-bot-api:8081.
+    telegram_api_url: str = "https://api.telegram.org"
+
     # --- Monitoring ---
     monitor_interval_seconds: float = 5.0
     compose_project: str = "personal-assistant"
@@ -196,6 +202,16 @@ class Settings(BaseSettings):
     @classmethod
     def _strip(cls, v: str) -> str:
         return v.strip()
+
+    @field_validator("telegram_api_url")
+    @classmethod
+    def _telegram_api_url(cls, v: str) -> str:
+        v = (v or "").strip().rstrip("/")
+        if not v:
+            return "https://api.telegram.org"
+        if not v.startswith(("https://", "http://")):
+            raise ValueError("AC_TELEGRAM_API_URL must start with https:// or http://")
+        return v
 
     @field_validator("database_url")
     @classmethod

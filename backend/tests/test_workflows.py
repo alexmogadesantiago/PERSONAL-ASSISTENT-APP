@@ -241,3 +241,79 @@ def test_every_env_var_a_workflow_reads_reaches_n8n(path):
         assert re.search(rf"^\s+{var}:", n8n_block, re.M), (
             f"{path.name} reads $env.{var} but docker-compose does not pass it to n8n"
         )
+
+
+# ------------------------------------------- Telegram: launcher bot or Hub ---
+#
+# The built-in assistants send through the user's own launcher bot when one is
+# configured, and otherwise through the Telegram connected in the panel
+# (POST /api/automations/notify). Nothing reaches api.telegram.org without
+# passing the routing IF first, and nothing requires the launcher tokens.
+
+def _incoming(wf: dict, name: str) -> list[tuple[str, int]]:
+    out = []
+    for source, outputs in (wf.get("connections") or {}).items():
+        for index, branch in enumerate(outputs.get("main", [])):
+            for link in branch or []:
+                if link["node"] == name:
+                    out.append((source, index))
+    return out
+
+
+def _direct_telegram_nodes(wf: dict) -> list[dict]:
+    return [n for n in wf["nodes"] if "api.telegram.org" in str(n.get("parameters", {}).get("url", ""))]
+
+
+def _hub_nodes(wf: dict) -> list[dict]:
+    return [n for n in wf["nodes"] if "/api/automations/notify" in str(n.get("parameters", {}).get("url", ""))]
+
+
+@pytest.mark.parametrize("path", WORKFLOWS, ids=lambda p: p.name)
+def test_every_direct_telegram_send_has_a_hub_twin_behind_one_if(path):
+    wf = _load(path)
+    by_name = {n["name"]: n for n in wf["nodes"]}
+    direct = _direct_telegram_nodes(wf)
+    assert direct, f"{path.name} sends nothing to Telegram"
+    for node in direct:
+        parents = _incoming(wf, node["name"])
+        assert len(parents) == 1, f"{path.name}: {node['name']!r} must be reached only through its routing IF"
+        route, branch = parents[0]
+        assert by_name[route]["type"] == "n8n-nodes-base.if" and branch == 0, (
+            f"{path.name}: {node['name']!r} is not the TRUE branch of a routing IF")
+        condition = json.dumps(by_name[route]["parameters"], ensure_ascii=False)
+        if path.name.startswith("00-"):
+            assert "telegram_listo" in condition
+        else:
+            var = re.search(r"\$env\.(TELEGRAM_[A-Z_]+)", node["parameters"]["url"]).group(1)
+            assert f"$env.{var}" in condition and "$env.TELEGRAM_CHAT_ID" in condition, (
+                f"{path.name}: {route!r} must test the launcher token and chat id")
+        false_branch = wf["connections"][route]["main"][1]
+        assert len(false_branch) == 1, f"{path.name}: {route!r} has no Hub branch"
+        twin = by_name[false_branch[0]["node"]]
+        assert twin in _hub_nodes(wf), f"{path.name}: {route!r} FALSE branch does not go to the Hub relay"
+
+
+@pytest.mark.parametrize("path", WORKFLOWS, ids=lambda p: p.name)
+def test_hub_relay_calls_are_authenticated_and_carry_the_message(path):
+    wf = _load(path)
+    hub = _hub_nodes(wf)
+    assert hub, f"{path.name} has no Hub relay node"
+    for node in hub:
+        params = node["parameters"]
+        assert params["method"] == "POST"
+        assert "X-AC-Service-Token" in json.dumps(params.get("headerParameters", {}))
+        body = params["jsonBody"]
+        for field in ("text:", 'parse_mode: "HTML"', "source:", "profile_id: $env.AC_PROFILE_ID"):
+            assert field in body, f"{path.name}: {node['name']!r} body lacks {field}"
+        assert "chat_id" not in body, "the Hub decides the chat; a workflow never names one"
+        assert "TELEGRAM_" not in json.dumps(params), "the Hub path never touches a launcher token"
+
+
+@pytest.mark.parametrize("path", ASSISTANTS, ids=lambda p: p.name)
+def test_launcher_telegram_is_optional_in_the_config_check(path):
+    node = next(n for n in _nodes(path) if n["name"] == "Comprobar configuracion")
+    code = node["parameters"]["jsCode"]
+    block = code.split("const requeridas = {", 1)[1].split("};", 1)[0]
+    assert "TELEGRAM_" not in block, f"{path.name}: Telegram must not be a required variable any more"
+    # ...but a half-configured own bot is still reported, not silently re-routed
+    assert "TELEGRAM_CHAT_ID" in code and "tokenBot" in code

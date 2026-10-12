@@ -4,8 +4,8 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Asistente - Marca Personal (borradores LinkedIn)\n\n**Que hace:** cada manana a las 08:15 lee las fuentes del perfil, deduplica (45 dias), redacta hasta 3 borradores de LinkedIn con IA en el tono del perfil, los guarda como Markdown en `output/marca-personal/` y avisa por Telegram. Nunca publica nada: son borradores para revisar.\n\n**Credenciales:** AC_SERVICE_TOKEN · AC_PROFILE_ID · TELEGRAM_TOKEN_MARCA · TELEGRAM_CHAT_ID. No necesita OAuth.\n\n**Fiabilidad:** un feed caido o una respuesta de IA invalida solo descarta ese elemento; si no sale ningun borrador se avisa via *Sistema - Gestor de errores*.",
-        "height": 320,
+        "content": "## Asistente - Marca Personal (borradores LinkedIn)\n\n**Que hace:** cada manana a las 08:15 lee las fuentes del perfil, deduplica (45 dias), redacta hasta 3 borradores de LinkedIn con IA en el tono del perfil, los guarda como Markdown en `output/marca-personal/` y avisa por Telegram. Nunca publica nada: son borradores para revisar.\n\n**Credenciales:** AC_SERVICE_TOKEN · AC_PROFILE_ID. No necesita OAuth.\n\n**Telegram:** el que conectas en el panel (Integraciones > Telegram). Opcional: un bot propio con TELEGRAM_TOKEN_MARCA + TELEGRAM_CHAT_ID en el launcher, que entonces tiene prioridad.\n\n**Fiabilidad:** un feed caido o una respuesta de IA invalida solo descarta ese elemento; si no sale ningun borrador se avisa via *Sistema - Gestor de errores*.",
+        "height": 380,
         "width": 3000,
         "color": 7
       },
@@ -201,8 +201,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.3,
       "position": [
-        1440,
-        160
+        1700,
+        50
       ],
       "retryOnFail": true,
       "maxTries": 3,
@@ -242,7 +242,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Falla pronto, con un mensaje que dice QUE falta y DONDE se pone, en vez\n// de un 401 o un \"chat not found\" tres nodos mas tarde. El Error workflow\n// (\"Sistema - Gestor de errores\") convierte este error en un aviso.\nconst requeridas = {\n  AC_API_URL: 'URL del backend; la pone el instalador',\n  AC_SERVICE_TOKEN: 'panel > AI > Automation token',\n  AC_PROFILE_ID: 'launcher > Ajustes > ID del perfil activo',\n  TELEGRAM_CHAT_ID: 'launcher > Ajustes > Chat ID de Telegram',\n  TELEGRAM_TOKEN_MARCA: 'launcher > Ajustes > Bot Marca Personal',\n};\nconst vacia = (v) => !String(v || '').trim() || /^PEGA_AQUI/i.test(String(v).trim());\nconst faltan = Object.entries(requeridas).filter(([k]) => vacia($env[k]));\nif (faltan.length) {\n  throw new Error('Configuracion incompleta: ' +\n    faltan.map(([k, donde]) => k + ' (' + donde + ')').join('; '));\n}\nreturn $input.all();\n"
+        "jsCode": "// Falla pronto, con un mensaje que dice QUE falta y DONDE se pone, en vez\n// de un 401 o un \"chat not found\" tres nodos mas tarde. El Error workflow\n// (\"Sistema - Gestor de errores\") convierte este error en un aviso.\nconst requeridas = {\n  AC_API_URL: 'URL del backend; la pone el instalador',\n  AC_SERVICE_TOKEN: 'panel > AI > Automation token',\n  AC_PROFILE_ID: 'launcher > Ajustes > ID del perfil activo',\n};\nconst vacia = (v) => !String(v || '').trim() || /^PEGA_AQUI/i.test(String(v).trim());\nconst faltan = Object.entries(requeridas).filter(([k]) => vacia($env[k]));\n// Telegram: el bot propio del launcher es OPCIONAL. Sin token, el aviso sale\n// por el Telegram conectado en el panel (Integraciones > Telegram). Lo que no\n// vale es un bot a medias: con token hace falta el chat id, y el token tiene\n// que tener forma de token (si no, se iria al panel sin que nadie lo sepa).\nconst tokenBot = \"TELEGRAM_TOKEN_MARCA\";\nif (!vacia($env[tokenBot])) {\n  if (!/^\\d+:[\\w-]+$/.test(String($env[tokenBot]).trim())) {\n    faltan.push([tokenBot, 'no parece un token de @BotFather (123456:AA...); corrigelo o borralo para usar el Telegram del panel']);\n  }\n  if (!/^-?\\d+$/.test(String($env.TELEGRAM_CHAT_ID || '').trim())) {\n    faltan.push(['TELEGRAM_CHAT_ID', 'launcher > Ajustes > Chat ID de Telegram; lo necesita el bot propio, o borra ' + tokenBot + ' para usar el Telegram del panel']);\n  }\n}\nif (faltan.length) {\n  throw new Error('Configuracion incompleta: ' +\n    faltan.map(([k, donde]) => k + ' (' + donde + ')').join('; '));\n}\nreturn $input.all();\n"
       },
       "id": "comprobar-config",
       "name": "Comprobar configuracion",
@@ -252,8 +252,78 @@
         -960,
         160
       ],
-      "notes": "Valida las variables de entorno que este workflow necesita antes de llamar a nada.",
+      "notes": "Valida las variables de entorno que este workflow necesita antes de llamar a nada. El bot de Telegram del launcher es opcional.",
       "notesInFlow": false
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ /^\\d+:[\\w-]+$/.test(String($env.TELEGRAM_TOKEN_MARCA || '').trim()) && /^-?\\d+$/.test(String($env.TELEGRAM_CHAT_ID || '').trim()) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1440,
+        160
+      ],
+      "id": "tg-route-borradores",
+      "name": "¿Bot del launcher?",
+      "notes": "Si: bot propio del launcher (TELEGRAM_TOKEN_MARCA + TELEGRAM_CHAT_ID). No: el Telegram conectado en el panel.",
+      "notesInFlow": false
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ (($env.AC_API_URL || '').match(/^https?:\\/\\//) ? ($env.AC_API_URL || '') : 'https://' + ($env.AC_API_URL || '')).replace(/\\/+$/, '') }}/api/automations/notify",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-AC-Service-Token",
+              "value": "={{ $env.AC_SERVICE_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  text: $json.texto,\n  parse_mode: \"HTML\",\n  source: \"Asistente - Marca Personal\",\n  profile_id: $env.AC_PROFILE_ID || \"\"\n}) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        1700,
+        270
+      ],
+      "id": "tg-panel-borradores",
+      "name": "Telegram (panel) - Aviso borradores",
+      "notes": "Sin bot propio en el launcher: envia por el Telegram conectado en el panel (Integraciones > Telegram) a traves de /api/automations/notify.",
+      "notesInFlow": false,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
     }
   ],
   "connections": {
@@ -349,7 +419,7 @@
       "main": [
         [
           {
-            "node": "Telegram - Aviso borradores",
+            "node": "¿Bot del launcher?",
             "type": "main",
             "index": 0
           }
@@ -388,6 +458,24 @@
           }
         ]
       ]
+    },
+    "¿Bot del launcher?": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Aviso borradores",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Telegram (panel) - Aviso borradores",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "settings": {
@@ -400,6 +488,6 @@
     "errorWorkflow": "pa00errorhandler"
   },
   "active": false,
-  "versionId": "a1b2c3d4-0004-4000-8000-000000000100",
+  "versionId": "0be8077f-6436-46b5-a4ec-de893a3cb40e",
   "meta": {}
 }

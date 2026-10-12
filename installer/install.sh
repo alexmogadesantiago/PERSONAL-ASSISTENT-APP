@@ -136,13 +136,15 @@ if [ "$NEED_ENV" = "1" ]; then
     if v="$(cfg_get "$k")" && [ -n "$v" ]; then val="$v"
     elif eval "[ -n \"\${$k:-}\" ]"; then eval "val=\$$k"
     elif [ "$UNATTENDED" = "0" ]; then
-      printf '   %s — %s\n   %s (Enter para dejarlo pendiente): ' "$k" "$hint" "$k"
+      printf '   %s — %s (opcional)\n   %s (Enter = usar el Telegram del panel): ' "$k" "$hint" "$k"
       read -r val || val=""
     fi
+    # Opcionales: sin bot propio, los asistentes envian por el Telegram que se
+    # conecta en el panel (Integraciones > Telegram).
     if [ -n "$val" ]; then env_set "$k" "$val"; else env_set "$k" ""; MISSING="$MISSING $k"; fi
   done
   ap_ok ".env escrito"
-  for m in $MISSING; do ap_warn "BLOCKED BY: falta $m — el stack arranca pero el workflow que lo usa no funcionará hasta rellenarlo (ver CREDENCIALES.md)."; done
+  [ -z "$MISSING" ] || ap_ok "Sin bots propios de Telegram: los asistentes avisarán por el Telegram que conectes en el panel (Integraciones > Telegram)."
 else
   ap_ok ".env ya existe (usa --reconfigure para regenerarlo)"
 fi

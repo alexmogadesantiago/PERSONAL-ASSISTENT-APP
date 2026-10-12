@@ -71,9 +71,11 @@ services:
       # writes it to Postgres; the workflows fetch it at run time from
       # /api/profiles/runtime, so there is no file to keep in step.
       AC_PROFILE_ID: ${AC_PROFILE_ID:-}
-      # --- secrets consumed by workflow HTTP nodes ---
-      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
-      # Un bot de Telegram por workflow (ver CREDENCIALES.md).
+      # --- Telegram: OPCIONAL ---
+      # Sin estas variables los asistentes envian por el Telegram conectado en
+      # el panel (POST /api/automations/notify). Un bot propio por workflow
+      # (token + chat id) tiene prioridad para ese workflow. Ver CREDENCIALES.md.
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
       TELEGRAM_NOTICIAS_TOKEN: ${TELEGRAM_NOTICIAS_TOKEN:-}
       TELEGRAM_TOKEN_MARCA: ${TELEGRAM_TOKEN_MARCA:-}
       TELEGRAM_TOKEN_LABORAL: ${TELEGRAM_TOKEN_LABORAL:-}
@@ -236,6 +238,8 @@ services:
       # Gemini stays supported; it is simply no longer required.
       AC_GEMINI_API_KEY: ${AC_GEMINI_API_KEY:-${GEMINI_API_KEY:-}}
       AC_GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+      # Optional: a self-hosted Telegram Bot API server. Empty = api.telegram.org.
+      AC_TELEGRAM_API_URL: ${AC_TELEGRAM_API_URL:-}
       AC_COMPOSE_PROJECT: personal-assistant
       TZ: ${TZ}
     depends_on:

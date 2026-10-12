@@ -321,14 +321,17 @@ function Show-SettingsDialog {
     # llegarle a n8n por su entorno, y el entorno sale de este .env. Sin el, el
     # nodo "Perfil (API)" de los cuatro workflows falla.
     @{ key = 'AC_PROFILE_ID';           label = 'ID del perfil activo';  secret = $false }
-    @{ key = 'TELEGRAM_CHAT_ID';        label = 'Chat ID de Telegram';   secret = $false }
-    @{ key = 'TELEGRAM_NOTICIAS_TOKEN'; label = 'Bot Noticias';          secret = $true }
-    @{ key = 'TELEGRAM_TOKEN_MARCA';    label = 'Bot Marca Personal';    secret = $true }
-    @{ key = 'TELEGRAM_TOKEN_LABORAL';  label = 'Bot Laboral';           secret = $true }
-    @{ key = 'TELEGRAM_TOKEN_EMAIL';    label = 'Bot Email';             secret = $true }
-    # Opcional: bot dedicado a los avisos de fallo del gestor de errores. Vacio =
-    # los avisos salen por el primer bot configurado de los cuatro de arriba.
-    @{ key = 'TELEGRAM_TOKEN_ALERTAS';  label = 'Bot Alertas (opcional)'; secret = $true }
+    # Telegram: TODO opcional. Vacio = el asistente envia por el Telegram que
+    # se conecta en el panel (Integraciones > Telegram). Un bot propio (token +
+    # chat id) tiene prioridad para ese asistente.
+    @{ key = 'TELEGRAM_CHAT_ID';        label = 'Chat ID (bots propios)'; secret = $false }
+    @{ key = 'TELEGRAM_NOTICIAS_TOKEN'; label = 'Bot Noticias (opc.)';    secret = $true }
+    @{ key = 'TELEGRAM_TOKEN_MARCA';    label = 'Bot Marca (opc.)';       secret = $true }
+    @{ key = 'TELEGRAM_TOKEN_LABORAL';  label = 'Bot Laboral (opc.)';     secret = $true }
+    @{ key = 'TELEGRAM_TOKEN_EMAIL';    label = 'Bot Email (opc.)';       secret = $true }
+    # Bot dedicado a los avisos de fallo. Vacio = el primer bot de arriba, o el
+    # Telegram del panel si no hay ninguno.
+    @{ key = 'TELEGRAM_TOKEN_ALERTAS';  label = 'Bot Alertas (opc.)';     secret = $true }
   )
   $current = Read-ApEnvMap $RepoRoot
 

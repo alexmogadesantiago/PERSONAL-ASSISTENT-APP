@@ -4,8 +4,8 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Asistente - Noticias (digest diario)\n\n**Que hace:** cada manana a las 08:00 lee Google News con las categorias del perfil, deduplica (30 dias), resume hasta 5 noticias con IA en el idioma y tono del perfil y envia un digest ordenado por prioridad.\n\n**Credenciales:** AC_SERVICE_TOKEN · AC_PROFILE_ID · TELEGRAM_NOTICIAS_TOKEN · TELEGRAM_CHAT_ID. No necesita OAuth.\n\n**Fiabilidad:** una respuesta de IA invalida descarta solo esa noticia; si fallan todas, se avisa via *Sistema - Gestor de errores*.",
-        "height": 320,
+        "content": "## Asistente - Noticias (digest diario)\n\n**Que hace:** cada manana a las 08:00 lee Google News con las categorias del perfil, deduplica (30 dias), resume hasta 5 noticias con IA en el idioma y tono del perfil y envia un digest ordenado por prioridad.\n\n**Credenciales:** AC_SERVICE_TOKEN · AC_PROFILE_ID. No necesita OAuth.\n\n**Telegram:** el que conectas en el panel (Integraciones > Telegram). Opcional: un bot propio con TELEGRAM_NOTICIAS_TOKEN + TELEGRAM_CHAT_ID en el launcher, que entonces tiene prioridad.\n\n**Fiabilidad:** una respuesta de IA invalida descarta solo esa noticia; si fallan todas, se avisa via *Sistema - Gestor de errores*.",
+        "height": 380,
         "width": 3000,
         "color": 7
       },
@@ -219,7 +219,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Falla pronto, con un mensaje que dice QUE falta y DONDE se pone, en vez\n// de un 401 o un \"chat not found\" tres nodos mas tarde. El Error workflow\n// (\"Sistema - Gestor de errores\") convierte este error en un aviso.\nconst requeridas = {\n  AC_API_URL: 'URL del backend; la pone el instalador',\n  AC_SERVICE_TOKEN: 'panel > AI > Automation token',\n  AC_PROFILE_ID: 'launcher > Ajustes > ID del perfil activo',\n  TELEGRAM_CHAT_ID: 'launcher > Ajustes > Chat ID de Telegram',\n  TELEGRAM_NOTICIAS_TOKEN: 'launcher > Ajustes > Bot Noticias',\n};\nconst vacia = (v) => !String(v || '').trim() || /^PEGA_AQUI/i.test(String(v).trim());\nconst faltan = Object.entries(requeridas).filter(([k]) => vacia($env[k]));\nif (faltan.length) {\n  throw new Error('Configuracion incompleta: ' +\n    faltan.map(([k, donde]) => k + ' (' + donde + ')').join('; '));\n}\nreturn $input.all();\n"
+        "jsCode": "// Falla pronto, con un mensaje que dice QUE falta y DONDE se pone, en vez\n// de un 401 o un \"chat not found\" tres nodos mas tarde. El Error workflow\n// (\"Sistema - Gestor de errores\") convierte este error en un aviso.\nconst requeridas = {\n  AC_API_URL: 'URL del backend; la pone el instalador',\n  AC_SERVICE_TOKEN: 'panel > AI > Automation token',\n  AC_PROFILE_ID: 'launcher > Ajustes > ID del perfil activo',\n};\nconst vacia = (v) => !String(v || '').trim() || /^PEGA_AQUI/i.test(String(v).trim());\nconst faltan = Object.entries(requeridas).filter(([k]) => vacia($env[k]));\n// Telegram: el bot propio del launcher es OPCIONAL. Sin token, el aviso sale\n// por el Telegram conectado en el panel (Integraciones > Telegram). Lo que no\n// vale es un bot a medias: con token hace falta el chat id, y el token tiene\n// que tener forma de token (si no, se iria al panel sin que nadie lo sepa).\nconst tokenBot = \"TELEGRAM_NOTICIAS_TOKEN\";\nif (!vacia($env[tokenBot])) {\n  if (!/^\\d+:[\\w-]+$/.test(String($env[tokenBot]).trim())) {\n    faltan.push([tokenBot, 'no parece un token de @BotFather (123456:AA...); corrigelo o borralo para usar el Telegram del panel']);\n  }\n  if (!/^-?\\d+$/.test(String($env.TELEGRAM_CHAT_ID || '').trim())) {\n    faltan.push(['TELEGRAM_CHAT_ID', 'launcher > Ajustes > Chat ID de Telegram; lo necesita el bot propio, o borra ' + tokenBot + ' para usar el Telegram del panel']);\n  }\n}\nif (faltan.length) {\n  throw new Error('Configuracion incompleta: ' +\n    faltan.map(([k, donde]) => k + ' (' + donde + ')').join('; '));\n}\nreturn $input.all();\n"
       },
       "id": "comprobar-config",
       "name": "Comprobar configuracion",
@@ -229,7 +229,7 @@
         -960,
         160
       ],
-      "notes": "Valida las variables de entorno que este workflow necesita antes de llamar a nada.",
+      "notes": "Valida las variables de entorno que este workflow necesita antes de llamar a nada. El bot de Telegram del launcher es opcional.",
       "notesInFlow": false
     },
     {
@@ -248,14 +248,84 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.3,
       "position": [
-        1440,
-        160
+        1700,
+        50
       ],
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 3000,
       "notes": "Envia el digest con el bot de Noticias (TELEGRAM_NOTICIAS_TOKEN).",
       "notesInFlow": false
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ /^\\d+:[\\w-]+$/.test(String($env.TELEGRAM_NOTICIAS_TOKEN || '').trim()) && /^-?\\d+$/.test(String($env.TELEGRAM_CHAT_ID || '').trim()) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1440,
+        160
+      ],
+      "id": "tg-route-noticias",
+      "name": "¿Bot del launcher?",
+      "notes": "Si: bot propio del launcher (TELEGRAM_NOTICIAS_TOKEN + TELEGRAM_CHAT_ID). No: el Telegram conectado en el panel.",
+      "notesInFlow": false
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ (($env.AC_API_URL || '').match(/^https?:\\/\\//) ? ($env.AC_API_URL || '') : 'https://' + ($env.AC_API_URL || '')).replace(/\\/+$/, '') }}/api/automations/notify",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-AC-Service-Token",
+              "value": "={{ $env.AC_SERVICE_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  text: $json.texto,\n  parse_mode: \"HTML\",\n  source: \"Asistente - Noticias\",\n  profile_id: $env.AC_PROFILE_ID || \"\"\n}) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        1700,
+        270
+      ],
+      "id": "tg-panel-noticias",
+      "name": "Telegram (panel) - Enviar noticias",
+      "notes": "Sin bot propio en el launcher: envia por el Telegram conectado en el panel (Integraciones > Telegram) a traves de /api/automations/notify.",
+      "notesInFlow": false,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
     }
   ],
   "connections": {
@@ -340,7 +410,7 @@
       "main": [
         [
           {
-            "node": "Telegram - Enviar noticias",
+            "node": "¿Bot del launcher?",
             "type": "main",
             "index": 0
           }
@@ -390,6 +460,24 @@
           }
         ]
       ]
+    },
+    "¿Bot del launcher?": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Enviar noticias",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Telegram (panel) - Enviar noticias",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "settings": {
@@ -402,6 +490,6 @@
     "errorWorkflow": "pa00errorhandler"
   },
   "active": false,
-  "versionId": "a1b2c3d4-0003-4000-8000-000000000100",
+  "versionId": "0f211add-c7a3-4441-ac0d-363f7a95ea18",
   "meta": {}
 }

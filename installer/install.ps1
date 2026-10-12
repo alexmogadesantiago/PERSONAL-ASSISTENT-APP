@@ -60,11 +60,14 @@ $SecretSpec = @(
   # panel (Settings -> Artificial Intelligence), que la guarda cifrada en la
   # base de datos. Si el usuario ya tiene una, puede pegarla igualmente.
   @{ key='AC_NVIDIA_NIM_API_KEY';  internal=$false; optional=$true; hint='(opcional) API key de NVIDIA NIM - https://build.nvidia.com. Puedes dejarlo vacio y configurarlo despues desde el panel.' }
-  @{ key='TELEGRAM_CHAT_ID';       internal=$false; hint='Tu chat id de Telegram (bot <token>/getUpdates)' }
-  @{ key='TELEGRAM_NOTICIAS_TOKEN';internal=$false; hint='Token del bot de Noticias (@BotFather)' }
-  @{ key='TELEGRAM_TOKEN_MARCA';   internal=$false; hint='Token del bot de Marca Personal' }
-  @{ key='TELEGRAM_TOKEN_LABORAL'; internal=$false; hint='Token del bot de Laboral' }
-  @{ key='TELEGRAM_TOKEN_EMAIL';   internal=$false; hint='Token del bot de Email' }
+  # Telegram: los cuatro asistentes envian por el Telegram que el usuario
+  # conecta en el panel (Integraciones > Telegram). Un bot propio por asistente
+  # es OPCIONAL y, si se rellena (token + chat id), tiene prioridad.
+  @{ key='TELEGRAM_CHAT_ID';       internal=$false; optional=$true; hint='(opcional) chat id para los bots propios' }
+  @{ key='TELEGRAM_NOTICIAS_TOKEN';internal=$false; optional=$true; hint='(opcional) bot propio de Noticias (@BotFather)' }
+  @{ key='TELEGRAM_TOKEN_MARCA';   internal=$false; optional=$true; hint='(opcional) bot propio de Marca Personal' }
+  @{ key='TELEGRAM_TOKEN_LABORAL'; internal=$false; optional=$true; hint='(opcional) bot propio de Laboral' }
+  @{ key='TELEGRAM_TOKEN_EMAIL';   internal=$false; optional=$true; hint='(opcional) bot propio de Email' }
 )
 
 function New-InternalSecret([hashtable]$Spec) {

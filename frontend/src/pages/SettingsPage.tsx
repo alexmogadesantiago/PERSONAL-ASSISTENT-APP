@@ -307,7 +307,7 @@ function Notifications() {
           </div>
         )}
         <p className="mt-3 text-xs text-subtle">
-          The system assistants also send failure alerts through their own bots (or TELEGRAM_TOKEN_ALERTAS), at most once per hour per error.
+          The four built-in assistants and their failure alerts (at most once per hour per error) arrive here too, unless one has its own bot set in the launcher.
         </p>
       </Card>
     </div>
