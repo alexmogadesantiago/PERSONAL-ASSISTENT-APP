@@ -419,6 +419,29 @@ describe("Inbox 2.0", () => {
   });
 });
 
+describe("Inbox → Calendar", () => {
+  it("adds a detected deadline through the assistant's calendar endpoint, which honours demo mode", async () => {
+    const mail = [{ id: "m1", thread_id: "t1", from: "Marta <marta@school.edu>", subject: "TDR presentation", date: "", snippet: "…",
+      has_attachments: false, attachments: [], labels: [], link: "", unread: true, important: false, triage: null, important_sender: false }];
+    const { calls } = installFetchStub({
+      "GET /api/assistant/mail/m1": { body: { ...mail[0], text: "Send it by Friday." } },
+      "GET /api/assistant/mail": { body: { data: mail } },
+      "POST /api/assistant/mail/m1/analyze": { body: { priority: "high", category: "school", action_required: true, summary: "Entrega el viernes.",
+        deadline: "2026-10-09T17:00:00+02:00", deadline_title: "Entregar TDR", suggested_action: "", sender: "marta@school.edu", priority_reasons: [], tasks: [] } },
+      "POST /api/assistant/calendar/events": { status: 201, body: { created: false, demo: true, message: "Demo mode: no event was created." } },
+    });
+    renderWithProviders(<InboxPage />);
+    await userEvent.click(await screen.findByText("TDR presentation"));
+    await userEvent.click(await screen.findByRole("button", { name: /Analyze with AI/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "Add to Calendar" }));
+
+    expect(await screen.findByText("Demo mode: no event was created.")).toBeInTheDocument();
+    const post = calls.find((c) => c.url.endsWith("/api/assistant/calendar/events"))!;
+    expect(JSON.parse(String(post.init?.body))).toMatchObject({ title: "Entregar TDR", start: "2026-10-09T17:00:00+02:00", duration_minutes: 30 });
+    expect(calls.some((c) => c.url.includes("/api/automations/test")), "no detour through the builder's test run").toBe(false);
+  });
+});
+
 /* ------------------------------------------------------------ presentation */
 
 describe("Presentation view", () => {

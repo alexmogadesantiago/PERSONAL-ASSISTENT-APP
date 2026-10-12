@@ -9,7 +9,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { assistantApi, automationsApi, type MailAnalysis, type MailItem, type Tone } from "@/api/platform";
+import { assistantApi, type MailAnalysis, type MailItem, type Tone } from "@/api/platform";
 import { useTaskMutations } from "@/hooks/platform";
 import { useToast } from "@/stores/toast";
 import { errorMessage } from "@/components/common";
@@ -59,20 +59,18 @@ export function MailDetail({ m, onClose }: { m: MailItem; onClose: () => void })
 
   async function addToCalendar() {
     if (!a?.deadline) return;
+    const title = (a.deadline_title || m.subject || "Reminder").slice(0, 200);
     try {
-      const r = await automationsApi.test({
-        name: "Reminder",
-        description: "",
-        trigger: { block: "manual", params: {} },
-        steps: [
-          {
-            block: "calendar.create_event",
-            params: { title: a.deadline_title || m.subject, start: a.deadline, duration_minutes: 30, description: `From: ${m.from}\n${a.summary}` },
-          },
-        ],
+      // The assistant's own calendar endpoint: it honours demo mode and records
+      // the event in the activity trail as what it is.
+      const r = await assistantApi.createEvent({
+        title,
+        start: a.deadline,
+        duration_minutes: 30,
+        notes: `From: ${m.from}\n${a.summary}`.slice(0, 1000),
       });
-      if (r.ok) toast.success("Added to your calendar", a.deadline_title ?? m.subject);
-      else toast.error("Could not add it", r.steps.find((x) => !x.ok)?.error?.message);
+      if (r.demo) toast.info("Demo mode", r.message ?? "No event was created.");
+      else toast.success("Added to your calendar", title);
     } catch (e) {
       toast.error("Could not add it", errorMessage(e));
     }
